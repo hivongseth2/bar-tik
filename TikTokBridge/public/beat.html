@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Máy Nghe Nhịp</title>
+<link rel="icon" href="/favicon.svg">
+<link rel="stylesheet" href="/beat.css">
+</head>
+<body>
+<main>
+    <header>
+        <h1>🎧 Máy nghe nhịp</h1>
+        <span id="bridge" class="pill">Đang nối bridge…</span>
+    </header>
+    <p class="lead">Nghe nhạc đang phát trên máy để quán bar <b>giật theo nhịp</b>. Trang <b>chỉ nghe</b>, không phát lại âm thanh.</p>
+
+    <div id="insecure" class="warn" hidden>
+        Trình duyệt chỉ cho nghe âm thanh ở địa chỉ <b>127.0.0.1</b>. Mở trang này bằng:
+        <a id="secure-link" href="#">http://127.0.0.1:3000/beat.html</a>
+    </div>
+
+    <section class="stage">
+        <div id="pulse" class="pulse">
+            <div class="bpm"><b id="bpm">--</b><small>BPM</small></div>
+        </div>
+        <div class="meters">
+            <label>Bass <span class="bar"><i id="m-bass"></i></span></label>
+            <label>Âm lượng <span class="bar"><i id="m-loud"></i></span></label>
+            <div class="row">
+                <span id="beats" class="muted">0 nhịp</span>
+                <span id="drop" class="drop" hidden>🔥 ĐOẠN SÔI ĐỘNG</span>
+            </div>
+        </div>
+    </section>
+
+    <section class="sources">
+        <div class="card">
+            <h2>🖥️ Âm thanh của máy tính</h2>
+            <p>Bấm nút → chọn <b>Toàn bộ màn hình</b> → tick <b>"Chia sẻ cả âm thanh hệ thống"</b> → Chia sẻ.
+               Nghe được nhạc từ LIVE Studio, Spotify, YouTube, app DJ…</p>
+            <button id="btn-system" class="primary">Nghe âm thanh máy tính</button>
+        </div>
+        <div class="card">
+            <h2>🎙️ Thiết bị thu âm</h2>
+            <p>Chọn <b>Stereo Mix</b> (nếu card âm thanh có) hoặc micro / dây thu âm.</p>
+            <div class="row">
+                <select id="device"><option value="">Mặc định</option></select>
+                <button id="btn-device">Nghe thiết bị này</button>
+            </div>
+        </div>
+    </section>
+
+    <section class="controls">
+        <label>Độ nhạy <input id="sens" type="range" min="0.5" max="2" step="0.1" value="1"> <span id="sens-val">1.0</span></label>
+        <button id="btn-stop" disabled>Dừng nghe</button>
+    </section>
+    <p id="status" class="status">Chưa nghe. Chọn một nguồn âm thanh ở trên.</p>
+    <p class="muted small">Để cửa sổ này mở trong lúc live (che đi hay thu nhỏ đều được). Nếu bỏ nhạc MP3 vào thư mục DJ_MUSIC thì quán bar tự nghe nhạc của nó, không cần trang này.</p>
+</main>
+<script type="module" src="/beat.js"></script>
+</body>
+</html>

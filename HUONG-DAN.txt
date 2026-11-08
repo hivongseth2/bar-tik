@@ -27,7 +27,11 @@ TIKTOK LIVE BAR - HUONG DAN CHAY TREN MAY MOI
    Add source -> Link -> dan:  http://localtest.me:3000/bar.html
    Bat Custom resolution 1080 x 1920, bat Turn on sound -> Add -> chon Fill screen.
    Tuy chon them vao cuoi link: ?chroma=1 (nen xanh), ?hud=0 (an bang), ?music=0 (tat nhac), ?npc=8 (so nguoi ao), ?bloom=0 (tat phat sang neu may yeu), ?sfx=0 (tat am thanh hieu ung)
-   Phim: F1 an/hien bang, F2 nen xanh.
+   Phim: F1 an/hien bang, F2 nen xanh, F3 hoac C mo Bang dieu khien.
+   Nhac trong DJ_MUSIC thi nhan vat / camera / den giat theo nhip that cua bai (tu do BPM).
+   Nhac phat tu LIVE Studio / Spotify / app khac: mo Chrome vao http://127.0.0.1:3000/beat.html (Trang nghe nhip),
+   bam "Nghe am thanh may tinh" -> chon Toan bo man hinh -> tick "Chia se ca am thanh he thong" -> Chia se.
+   Trang chi nghe de bat nhip, khong phat lai am thanh. De cua so do mo trong luc live (thu nho cung duoc).
    Nhac nen: tha MP3 vao DJ_MUSIC (hoac Build\DJ_MUSIC). Man LED: tha video MP4 / anh PNG vao DJ_VIDEO.
    Ban Unity cu: dat GAME_MODE=unity trong TikTokBridge\.env, start.bat se mo Build\TIKTOK_LIVE_BAR.exe,
    dua vao LIVE Studio bang Game Capture.

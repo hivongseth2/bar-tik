@@ -106,7 +106,10 @@ app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Referrer-Policy', 'no-referrer');
-    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
+    // trang nghe nhịp (beat.html) cần micro / chia sẻ âm thanh màn hình; các trang khác vẫn chặn
+    res.setHeader('Permissions-Policy', req.path === '/beat.html'
+        ? 'camera=(), microphone=(self), display-capture=(self), geolocation=(), payment=()'
+        : 'camera=(), microphone=(), geolocation=(), payment=()');
     res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
     res.setHeader('Content-Security-Policy', [
         "default-src 'self'",
@@ -819,11 +822,14 @@ async function handleClientMessage(ws, message) {
 
     if (message.type === 'register') {
         if (ws.registered) return send(ws, { type: 'error', message: 'Client đã đăng ký quyền.' });
-        if (message.role !== 'control' && message.role !== 'overlay') {
+        if (message.role !== 'control' && message.role !== 'overlay' && message.role !== 'beat') {
             return send(ws, { type: 'error', message: 'Vai trò client không hợp lệ.' });
         }
         ws.role = message.role;
         ws.registered = true;
+        if (ws.role === 'beat') {
+            return send(ws, { type: 'beat_ready', overlays: [...wss.clients].filter(c => c.role === 'overlay').length });
+        }
         send(ws, { type: 'config', game: gameConfig, gifts: giftConfig });
         send(ws, { type: 'status', ...connectionStatus });
         send(ws, { type: 'metrics', ...metrics });
@@ -837,6 +843,29 @@ async function handleClientMessage(ws, message) {
     }
 
     if (!ws.registered) return send(ws, { type: 'error', message: 'Client chưa đăng ký quyền.' });
+
+    if (message.type === 'beat') {
+        if (ws.role !== 'beat') return send(ws, { type: 'error', message: 'Chỉ trang nghe nhịp được gửi nhịp.' });
+        const num = (value, min, max) => Math.min(max, Math.max(min, Number(value) || 0));
+        const beat = {
+            type: 'beat',
+            onset: message.onset === true,
+            bpm: Math.round(num(message.bpm, 0, 200) * 10) / 10,
+            strength: Math.round(num(message.strength, 0, 1) * 100) / 100,
+            loud: Math.round(num(message.loud, 0, 1) * 1000) / 1000,
+            loudAvg: Math.round(num(message.loudAvg, 0, 1) * 1000) / 1000
+        };
+        const payload = JSON.stringify(beat);
+        let overlays = 0;
+        for (const client of wss.clients) {
+            if (client.role !== 'overlay' || client.readyState !== WebSocket.OPEN || client.bufferedAmount > 64 * 1024) continue;
+            client.send(payload);
+            overlays++;
+        }
+        // báo lại cho trang nghe nhịp biết có bao nhiêu màn hình quán bar đang nhận (mỗi nhịp tim)
+        if (!beat.onset) send(ws, { type: 'beat_ack', overlays });
+        return;
+    }
 
     const controlOnly = message.type === 'master_save' || message.type === 'master_test';
     const operatorOnly = new Set([
@@ -964,7 +993,8 @@ wss.on('connection', (ws, request) => {
     send(ws, { type: 'status', ...connectionStatus });
     ws.on('message', (rawMessage, isBinary) => {
         if (isBinary) return ws.close(1003, 'Text messages only');
-        if (!consumeRateLimit(ws.rateLimit)) return ws.close(1008, 'Rate limit exceeded');
+        // trang nghe nhịp gửi ~3-4 tin/giây (mỗi tiếng kick + nhịp tim 1 giây) -> nới giới hạn cho riêng nó
+        if (!consumeRateLimit(ws.rateLimit, Date.now(), ws.role === 'beat' ? 150 : 40)) return ws.close(1008, 'Rate limit exceeded');
         let message;
         try {
             message = JSON.parse(rawMessage.toString());
@@ -1014,6 +1044,7 @@ server.listen(PORT, HOST, () => {
     console.log(`\nTikTok Live Game: http://${HOST}:${PORT}`);
     console.log(`Bảng điều khiển:  http://${HOST}:${PORT}/control.html`);
     console.log(`Quán bar (web):   http://localtest.me:${PORT}/bar.html   <- dán vào TikTok LIVE Studio (Link, 1080x1920)`);
+    console.log(`Nghe nhịp nhạc:   http://127.0.0.1:${PORT}/beat.html   <- mở bằng Chrome nếu nhạc phát từ LIVE Studio / app khác`);
     console.log(`Nguồn live:       ${LIVE_PROVIDER === 'tikfinity' ? `TikFinity (${TIKFINITY_WS_URL})` : 'TikTok trực tiếp'}\n`);
     if (AUTO_USERNAME) {
         console.log(`Tự kết nối @${AUTO_USERNAME}...`);

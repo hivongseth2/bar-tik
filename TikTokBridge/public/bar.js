@@ -2,6 +2,7 @@
 // Tham số URL: ?chroma=1 (nền xanh), ?hud=0 (ẩn bảng), ?music=0 (tắt nhạc), ?npc=8 (số người ảo), ?demo=30 (giả lập không cần live)
 //              ?bloom=0 (tắt phát sáng nếu máy yếu), ?sfx=0 (tắt âm thanh hiệu ứng)
 import * as THREE from '/vendor/three/three.module.js';
+import { createBeatDetector } from '/beat-detector.js';
 
 const params = new URLSearchParams(location.search);
 const settings = {
@@ -671,11 +672,13 @@ class Actor {
         const w = beat.bps * Math.PI;
         switch (this.action) {
             case 'dance': {
-                const b = Math.abs(Math.sin(t * w + this.seed));
-                y += b * 0.22 * s;
-                sx = 1 + (1 - b) * 0.08; sy = 1 - (1 - b) * 0.06;
-                x += Math.sin(t * w * 0.5 + this.seed) * 0.08 * s;
-                tilt = Math.sin(t * w * 0.5 + this.seed) * 0.12;
+                // nảy lên đúng lúc trống đánh, rơi xuống thì bẹp nhẹ
+                const b = beat.pulse;
+                y += (b * 0.28 + Math.abs(Math.sin(t * w + this.seed)) * 0.05) * s;
+                sx = 1 + (b > 0.75 ? (b - 0.75) * 0.5 : 0) - b * 0.04; sy = 1 + b * 0.07 - (b > 0.75 ? (b - 0.75) * 0.4 : 0);
+                const sway = Math.sin(beat.beats * Math.PI + this.seed);
+                x += sway * 0.09 * s;
+                tilt = sway * 0.14;
                 break;
             }
             case 'jump': {
@@ -701,7 +704,8 @@ class Actor {
                 break;
             }
             default:
-                y += Math.abs(Math.sin(t * w * 0.5 + this.seed)) * 0.035 * s;
+                y += (beat.pulse * 0.07 + Math.abs(Math.sin(t * w * 0.5 + this.seed)) * 0.02) * s;
+                sy = 1 - beat.pulse * 0.03;
         }
         const h = CHAR_HEIGHT * s * this.growMul;
         this.sprite.scale.set(h * this.aspect * sx, h * sy, 1);
@@ -1462,14 +1466,14 @@ function updateCamera(dt, t, beat) {
     cam.pos.lerp(tmpV, k);
     cam.look.lerp(tmpL, k);
     camera.position.copy(cam.pos);
-    if (beat.inDrop || party.until > t) {
-        const kick = beat.pulse * 0.035;
+    if (beat.inDrop || party.until > t || beat.pulse > 0.85) {
+        const kick = beat.pulse * (beat.inDrop || party.until > t ? 0.06 : 0.02);
         camera.position.x += (Math.random() - 0.5) * kick;
         camera.position.y += (Math.random() - 0.5) * kick;
     }
     camera.lookAt(cam.look);
     // nhịp mạnh: camera "giật" zoom nhẹ theo beat
-    const fov = cam.baseFov - ((beat.inDrop || party.until > t) ? beat.pulse * 1.6 : beat.pulse * 0.4);
+    const fov = cam.baseFov - ((beat.inDrop || party.until > t) ? beat.pulse * 2.6 : beat.pulse * 1.1);
     if (Math.abs(camera.fov - fov) > 0.01) { camera.fov = fov; camera.updateProjectionMatrix(); }
 }
 
@@ -1537,7 +1541,47 @@ const party = { energy: 0, until: 0 };
 let bass = 0;
 let analyser = null, analyserData = null;
 
+// Bắt nhịp thật: nghe tiếng kick (bass 40-200Hz) của nhạc đang phát, tự đo BPM, tự nhận đoạn sôi động.
+// Không có nhạc trong trang (?music=0 / nhạc phát từ LIVE Studio) thì chạy theo BPM cố định trong config.
+const beatDet = createBeatDetector();
+beatDet.active = false;
+beatDet.source = '';      // 'music' (nhạc trong trang) | 'listener' (trang nghe nhịp beat.html)
+function updateBeatDetector(dt, t) {
+    beatDet.decay(dt);
+    if (analyser) {
+        analyser.getByteFrequencyData(analyserData);
+        if (beatDet.process(analyserData, analyser.context.sampleRate, dt, t)) beatDet.source = 'music';
+    }
+    beatDet.active = t - beatDet.last < 2.5;
+    bass = beatDet.kick;
+}
+// Nhịp gửi từ trang nghe nhịp (beat.html) qua bridge. Nhạc phát ngay trong trang thì ưu tiên nhạc trong trang.
+function applyExternalBeat(ev) {
+    if (analyser && beatDet.source === 'music' && clock.elapsed - beatDet.last < 2.5) return;
+    beatDet.loudFast = clamp(Number(ev.loud) || 0, 0, 1);
+    beatDet.loudSlow = clamp(Number(ev.loudAvg) || 0, 0, 1);
+    const bpm = Number(ev.bpm);
+    if (bpm >= 60 && bpm <= 200) beatDet.interval = 60 / bpm;
+    if (ev.onset) {
+        beatDet.last = clock.elapsed;
+        beatDet.count++;
+        beatDet.kick = clamp(Number(ev.strength) || 0.8, 0.6, 1);
+        beatDet.source = 'listener';
+    }
+}
+
 function beatInfo(t) {
+    if (beatDet.active) {
+        const rel = (t - beatDet.last) / beatDet.interval;
+        const beats = beatDet.count + rel;
+        const phase = rel % 1;
+        const bar = Math.floor(beats / cfg.beatsPerBar);
+        const scheduled = (bar % cfg.dropEveryBars) >= cfg.dropEveryBars - cfg.dropBars;
+        // đoạn drop: nhạc to hơn hẳn mức trung bình vài giây trước (hoặc tới lượt drop mà nhạc đang to)
+        const inDrop = (beatDet.loudFast > beatDet.loudSlow * 1.1 && beatDet.loudFast > 0.25) || (scheduled && beatDet.loudFast > 0.3);
+        const pulse = Math.max(beatDet.kick, Math.pow(1 - phase, 4) * 0.45);
+        return { bps: 1 / beatDet.interval, beats, phase, bar, inDrop, pulse, live: true };
+    }
     const bps = cfg.bpm / 60;
     const beats = t * bps;
     const phase = beats % 1;
@@ -1548,14 +1592,8 @@ function beatInfo(t) {
 }
 
 const DOWN = new THREE.Vector3(0, -1, 0), aimV = new THREE.Vector3(), aimT = new THREE.Vector3();
+let frameNo = 0;
 function updateLights(dt, t, beat) {
-    if (analyser) {
-        analyser.getByteFrequencyData(analyserData);
-        let sum = 0;
-        for (let i = 1; i < 8; i++) sum += analyserData[i];
-        const level = clamp((sum / 7 / 255 - 0.45) / 0.45, 0, 1);
-        bass = Math.max(level, bass - dt * 3);
-    }
     const partying = party.until > t;
     const hot = beat.inDrop || partying;
     const mode = Math.floor(beat.bar / 4) % 4;
@@ -1603,7 +1641,7 @@ function updateLights(dt, t, beat) {
             b.mat.opacity = 0.1 + beat.pulse * 0.04;
         } else {
             b.mat.color.setHex(NEON[(i + colorShift) % NEON.length]);
-            b.mat.opacity = ((hot ? 0.13 : 0.08) + beat.pulse * 0.06) * gain;
+            b.mat.opacity = ((hot ? 0.12 : 0.07) + beat.pulse * 0.12) * gain;
         }
     });
     if (fa) {
@@ -1631,7 +1669,11 @@ function updateLights(dt, t, beat) {
     stageEdge.material.color.copy(tmpColor).multiplyScalar((0.6 + beat.pulse) * GLOW);
     boothStrip.material.color.setHSL((t * 0.1 + 0.5) % 1, 1, 0.5 + beat.pulse * 0.2).multiplyScalar(GLOW);
     for (let r = 1; r <= 3; r++) PODIUMS[r].ring.material.color.set(PODIUMS[r].color).multiplyScalar((0.7 + beat.pulse * 0.8) * GLOW);
-    disco.rotation.y += dt * 0.6;
+    disco.rotation.y += dt * (0.6 + beat.pulse * 2.5);
+    // màn LED chớp sáng theo trống (vượt ngưỡng bloom khi có phát sáng)
+    screenMat.color.setScalar(0.82 + beat.pulse * (settings.bloom ? 0.45 : 0.25));
+    // bảng chữ HUD nhún theo nhịp
+    if ((frameNo++ & 1) === 0) document.body.style.setProperty('--pulse', beat.pulse.toFixed(2));
     const hp = haze.geometry.attributes.position.array;
     for (let i = 0; i < hazeCount; i++) {
         hp[i * 3] += Math.sin(t * 0.1 + i) * dt * 0.15;
@@ -1707,7 +1749,8 @@ function onAudioUnlocked() {
             if (ctx.state !== 'running' || analyser) return;
             const src = ctx.createMediaElementSource(audio);
             analyser = ctx.createAnalyser();
-            analyser.fftSize = 256;
+            analyser.fftSize = 1024;
+            analyser.smoothingTimeConstant = 0.35;
             analyserData = new Uint8Array(analyser.frequencyBinCount);
             src.connect(analyser);
             analyser.connect(ctx.destination);
@@ -2068,6 +2111,7 @@ function handleEvent(ev) {
         case 'status': setConnStatus(ev); return;
         case 'metrics': stats.likes = ev.likes || 0; stats.diamonds = ev.diamonds || 0; renderStats(); return;
         case 'viewer_guide': renderGuide(ev); return;
+        case 'beat': applyExternalBeat(ev); return;
         case 'snapshot':
             clearPlayers();
             donors.clear();
@@ -2264,6 +2308,7 @@ function frame(now) {
     clock.last = now;
     clock.elapsed += dt;
     const t = clock.elapsed;
+    updateBeatDetector(dt, t);
     const beat = beatInfo(t);
     if (focus.userId && t > focus.until) { focus.userId = null; applyVisibility(); }
     if (t >= nextNpcRefillAt) ensureNpcCrowd();
@@ -2294,6 +2339,11 @@ function setChroma(on) {
 window.addEventListener('keydown', e => {
     if (e.key === 'F2') { e.preventDefault(); setChroma(!settings.chroma); }
     if (e.key === 'F1') { e.preventDefault(); document.body.classList.toggle('no-hud'); }
+    // F3 hoặc C: mở Bảng điều khiển (tab mới, mở rồi thì nhảy sang tab đó)
+    if (e.key === 'F3' || ((e.key === 'c' || e.key === 'C') && !e.ctrlKey && !e.metaKey && !e.altKey)) {
+        e.preventDefault();
+        window.open('/control.html', 'bar-control');
+    }
 });
 
 async function main() {

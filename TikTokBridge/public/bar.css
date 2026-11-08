@@ -104,3 +104,9 @@ body.no-hud #door { display: none; }
 #guide .item .ic { font-size: 1.05rem; line-height: 1; }
 #guide .item .coin { font-style: normal; font-weight: 800; color: #9ff3ff; background: rgba(0, 229, 255, 0.14);
     border: 1px solid rgba(0, 229, 255, 0.35); border-radius: 0.6rem; padding: 0 0.35rem; font-variant-numeric: tabular-nums; }
+/* nhún theo nhịp nhạc: --pulse (0..1) do bar.js cập nhật mỗi khung hình */
+body { --pulse: 0; }
+.brand { transform: scale(calc(1 + var(--pulse) * 0.07)); transform-origin: left center; }
+#hud-top { box-shadow: 0 0 calc(1rem + var(--pulse) * 1.6rem) rgba(255, 43, 214, calc(0.2 + var(--pulse) * 0.45)); }
+#energy-fill { filter: brightness(calc(1 + var(--pulse) * 0.6)); }
+.dot.ok { transform: scale(calc(1 + var(--pulse) * 0.5)); }
