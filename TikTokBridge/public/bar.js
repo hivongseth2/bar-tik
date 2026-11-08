@@ -1,5 +1,6 @@
 // Sàn Quẩy Online: bản web (three.js) của quán bar, nhận cùng luồng sự kiện với game Unity qua WebSocket của bridge.
 // Tham số URL: ?chroma=1 (nền xanh), ?hud=0 (ẩn bảng), ?music=0 (tắt nhạc), ?npc=8 (số người ảo), ?demo=30 (giả lập không cần live)
+//              ?bloom=0 (tắt phát sáng nếu máy yếu), ?sfx=0 (tắt âm thanh hiệu ứng)
 import * as THREE from '/vendor/three/three.module.js';
 
 const params = new URLSearchParams(location.search);
@@ -8,8 +9,14 @@ const settings = {
     hud: params.get('hud') !== '0',
     music: params.get('music') !== '0',
     npc: clamp(Number(params.get('npc') ?? 8) || 0, 0, 40),
-    demo: clamp(Number(params.get('demo') ?? 0) || 0, 0, 300)
+    demo: clamp(Number(params.get('demo') ?? 0) || 0, 0, 300),
+    sfx: params.get('sfx') !== '0'
 };
+// Phát sáng (bloom): chỉ chỗ sáng hơn ngưỡng mới tỏa. Đèn neon được đẩy sáng vượt ngưỡng (GLOW),
+// nhân vật / chữ hơi hạ (SPRITE_TINT) để không bị nhòe. Nền xanh (chroma) thì tắt cho dễ tách nền.
+settings.bloom = params.get('bloom') !== '0' && !settings.chroma;
+const GLOW = settings.bloom ? 2.4 : 1;
+const SPRITE_TINT = settings.bloom ? 0xf0f0f0 : 0xffffff;
 const cfg = {
     bpm: 128, beatsPerBar: 4, dropEveryBars: 8, dropBars: 2,
     partyGoal: 1000, maxPlayers: 400, ttlMs: 600000,
@@ -24,7 +31,8 @@ const NPC_NAMES = ['Bắp Rang', 'Cà Khịa', 'Tí Tởn', 'Tèo Teo', 'Bảy B
 const NEON = [0xff2bd6, 0x00e5ff, 0x7c4dff, 0xffd400, 0x00ff9c, 0xff5a1f];
 const RANK_COLORS = ['', '#ffd54a', '#dfe8f5', '#e8a062'];
 const TIER_COLORS = { aura: 0x00e5ff, neon: 0xff2bd6, fire: 0xff7a1a, royal: 0xffd54a, ice: 0x9fe8ff };
-const SPOTLIGHT_ACTIONS = new Set(['camera', 'vip', 'topdj', 'fireworks', 'medal']);
+const SPOTLIGHT_ACTIONS = new Set(['camera', 'vip', 'topdj', 'fireworks', 'medal', 'fly', 'plane', 'car', 'marry']);
+const ACTION_ICONS = { camera: '🔍', change: '🔄', fly: '🌀', plane: '✈️', car: '🏎️', marry: '💍' };
 const CHAR_HEIGHT = 1.75;
 
 function clamp(v, a, b) { return Math.min(b, Math.max(a, v)); }
@@ -43,6 +51,25 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.1;
+
+let composer = null, bloomPass = null;
+if (settings.bloom) {
+    Promise.all([
+        import('three/addons/postprocessing/EffectComposer.js'),
+        import('three/addons/postprocessing/RenderPass.js'),
+        import('three/addons/postprocessing/UnrealBloomPass.js'),
+        import('three/addons/postprocessing/OutputPass.js')
+    ]).then(([ec, rp, ub, op]) => {
+        const c = new ec.EffectComposer(renderer);
+        c.addPass(new rp.RenderPass(scene, camera));
+        bloomPass = new ub.UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.7, 0.5, 0.9);
+        c.addPass(bloomPass);
+        c.addPass(new op.OutputPass());
+        c.setPixelRatio(renderer.getPixelRatio());
+        c.setSize(window.innerWidth, window.innerHeight);
+        composer = c;
+    }).catch(error => console.warn('Không bật được phát sáng (bloom):', error));
+}
 
 const scene = new THREE.Scene();
 const BG = new THREE.Color(0x07040d);
@@ -195,6 +222,7 @@ laserGeo.translate(0, 17, 0);
 const lasers = [];
 for (let i = 0; i < 12; i++) {
     const mat = new THREE.MeshBasicMaterial({ color: i % 3 === 0 ? 0x00ff9c : i % 3 === 1 ? 0xff2bd6 : 0x00e5ff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+    mat.color.multiplyScalar(GLOW);
     const mesh = new THREE.Mesh(laserGeo, mat);
     const side = i < 6 ? -1 : 1;
     mesh.position.set(side * 6.5, 7.6, -7.8);
@@ -261,7 +289,8 @@ function emit(x, y, z, vx, vy, vz, color, life, gravity = -3) {
     pPos[i * 3] = x; pPos[i * 3 + 1] = y; pPos[i * 3 + 2] = z;
     pVel[i * 3] = vx; pVel[i * 3 + 1] = vy; pVel[i * 3 + 2] = vz;
     tmpColor.set(color);
-    pBase[i * 3] = tmpColor.r; pBase[i * 3 + 1] = tmpColor.g; pBase[i * 3 + 2] = tmpColor.b;
+    const pg = settings.bloom ? 1.7 : 1;
+    pBase[i * 3] = tmpColor.r * pg; pBase[i * 3 + 1] = tmpColor.g * pg; pBase[i * 3 + 2] = tmpColor.b * pg;
     pLife[i] = life; pMaxLife[i] = life; pGravity[i] = gravity;
 }
 function burst(x, y, z, color = pick(NEON), count = 160, speed = 4.5) {
@@ -398,7 +427,7 @@ class Actor {
         this.sparkleAcc = 0;
 
         this.group = new THREE.Group();
-        this.material = new THREE.SpriteMaterial({ transparent: true, alphaTest: 0.08, opacity: 0 });
+        this.material = new THREE.SpriteMaterial({ color: SPRITE_TINT, transparent: true, alphaTest: 0.08, opacity: 0 });
         this.sprite = new THREE.Sprite(this.material);
         this.sprite.center.set(0.5, 0);
         this.group.add(this.sprite);
@@ -408,7 +437,7 @@ class Actor {
         this.labelCanvas.height = 64;
         this.labelTex = new THREE.CanvasTexture(this.labelCanvas);
         this.labelTex.colorSpace = THREE.SRGBColorSpace;
-        this.label = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.labelTex, transparent: true, depthTest: false, depthWrite: false }));
+        this.label = new THREE.Sprite(new THREE.SpriteMaterial({ color: SPRITE_TINT, map: this.labelTex, transparent: true, depthTest: false, depthWrite: false }));
         this.label.center.set(0.5, 0);
         this.label.renderOrder = 10;
         this.group.add(this.label);
@@ -429,7 +458,10 @@ class Actor {
     }
 
     get height() { return CHAR_HEIGHT * this.currentScale * this.growMul; }
-    get currentScale() { return this.topRank ? Math.max(this.slotScale, 0.62) : this.slotScale; }
+    get currentScale() {
+        if (this.ride && this.ride.scale) return this.ride.scale;
+        return this.topRank ? Math.max(this.slotScale, 0.62) : this.slotScale;
+    }
 
     updateIdentity(data) {
         const nickname = data.nickname || data.uniqueId;
@@ -482,7 +514,7 @@ class Actor {
             c.height = 128;
             const tex = new THREE.CanvasTexture(c);
             tex.colorSpace = THREE.SRGBColorSpace;
-            this.title = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false }));
+            this.title = new THREE.Sprite(new THREE.SpriteMaterial({ color: SPRITE_TINT, map: tex, transparent: true, depthTest: false, depthWrite: false }));
             this.title.center.set(0.5, 0);
             this.title.renderOrder = 11;
             this.title.userData.canvas = c;
@@ -522,7 +554,7 @@ class Actor {
             c.height = 200;
             const tex = new THREE.CanvasTexture(c);
             tex.colorSpace = THREE.SRGBColorSpace;
-            this.bubble = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false }));
+            this.bubble = new THREE.Sprite(new THREE.SpriteMaterial({ color: SPRITE_TINT, map: tex, transparent: true, depthTest: false, depthWrite: false }));
             this.bubble.center.set(0.5, 0);
             this.bubble.renderOrder = 12;
             this.bubble.userData.canvas = c;
@@ -630,8 +662,9 @@ class Actor {
         const map = this.frames[this.frame];
         if (this.material.map !== map) { const was = this.material.map; this.material.map = map; if (!was) this.material.needsUpdate = true; }
 
-        const target = this.topRank ? PODIUMS[this.topRank].pos : this.slotPos;
-        this.pos.lerp(target, damp(this.topRank ? 3 : 4, dt));
+        const seat = this.ride ? this.ride.seats.get(this) : null;
+        if (seat) this.pos.lerp(seat, damp(this.ride.follow || 12, dt));
+        else this.pos.lerp(homeOf(this), damp(this.topRank ? 3 : 4, dt));
         this.growMul += ((t < this.growUntil ? 2.1 : 1) - this.growMul) * damp(3, dt);
         const s = this.currentScale;
         let x = this.pos.x, y = this.pos.y, z = this.pos.z, sx = 1, sy = 1, tilt = 0;
@@ -829,12 +862,13 @@ function clearPlayers() {
 function applyVisibility() {
     for (const [id, a] of players) {
         if (!focus.userId) a.visibility = a.isNpc ? 0.85 : 1;
-        else if (id === focus.userId) a.visibility = 1;
+        else if (id === focus.userId || id === focus.partnerId) a.visibility = 1;
         else a.visibility = a.topRank ? 0.4 : a.isNpc ? 0.14 : 0.22;
     }
 }
-function focusPlayer(userId, seconds) {
+function focusPlayer(userId, seconds, partnerId = null) {
     focus.userId = userId;
+    focus.partnerId = partnerId;
     focus.until = clock.elapsed + seconds;
     applyVisibility();
 }
@@ -849,6 +883,436 @@ function updateTopRanks() {
     renderTop3();
 }
 function danceAll(seconds) { for (const a of players.values()) a.dance(seconds); }
+
+// ───────────────────────── Quà lớn: bay vòng / máy bay / siêu xe / kết hôn ─────────────────────────
+function homeOf(a) { return a.topRank ? PODIUMS[a.topRank].pos : a.slotPos; }
+function smooth01(x) { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); }
+const rides = new Set();
+const rv = new THREE.Vector3(), rv2 = new THREE.Vector3();
+
+function disposeTree(obj) {
+    obj.traverse(o => {
+        o.geometry?.dispose();
+        for (const m of [].concat(o.material || [])) { m.map?.dispose(); m.dispose(); }
+    });
+}
+function startRide(ride) {
+    for (const a of ride.actors) if (a.ride) endRide(a.ride);
+    ride.start = clock.elapsed;
+    ride.until = clock.elapsed + ride.seconds;
+    for (const a of ride.actors) { a.ride = ride; puff(a.group.position); }
+    if (ride.group) room.add(ride.group);
+    rides.add(ride);
+    return ride;
+}
+function endRide(ride) {
+    if (!rides.delete(ride)) return;
+    for (const a of ride.actors) if (a.ride === ride) { a.ride = null; if (players.has(a.userId)) puff(a.group.position); }
+    if (ride.group) { room.remove(ride.group); disposeTree(ride.group); }
+    ride.onEnd?.();
+}
+function updateRides(dt, t, beat) {
+    for (const r of [...rides]) {
+        if (t > r.until || r.actors.some(a => !players.has(a.userId))) { endRide(r); continue; }
+        r.update(dt, t, clamp((t - r.start) / (r.until - r.start), 0, 1), beat);
+    }
+}
+function canvasSprite(w, h, draw) {
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    draw(c.getContext('2d'), w, h);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return new THREE.Sprite(new THREE.SpriteMaterial({ color: SPRITE_TINT, map: tex, transparent: true, depthWrite: false }));
+}
+function std(color, extra = {}) { return new THREE.MeshStandardMaterial({ color, roughness: 0.35, metalness: 0.55, ...extra }); }
+function shine(color) { const m = new THREE.MeshBasicMaterial({ color, toneMapped: false }); m.color.multiplyScalar(GLOW * 0.8); return m; }
+
+// 10 xu: mọc cánh bay vòng vòng trên sàn
+function rideFly(actor, seconds) {
+    const group = new THREE.Group();
+    const wings = canvasSprite(256, 128, (g, w, h) => {
+        for (const side of [-1, 1]) {
+            g.save();
+            g.translate(w / 2, h * 0.55);
+            g.scale(side, 1);
+            const grad = g.createLinearGradient(0, 0, w / 2, 0);
+            grad.addColorStop(0, 'rgba(255,255,255,0.95)');
+            grad.addColorStop(1, 'rgba(160,230,255,0.75)');
+            g.fillStyle = grad;
+            g.shadowColor = '#7fe8ff';
+            g.shadowBlur = 14;
+            for (let i = 0; i < 4; i++) {
+                g.beginPath();
+                g.moveTo(6, -6 + i * 4);
+                g.quadraticCurveTo(w * 0.28, -h * 0.5 + i * 10, w * 0.48 - i * 14, -h * 0.32 + i * 20);
+                g.quadraticCurveTo(w * 0.22, i * 8, 6, 10 + i * 5);
+                g.fill();
+            }
+            g.restore();
+        }
+    });
+    wings.renderOrder = 1;
+    group.add(wings);
+    const seat = new THREE.Vector3();
+    const dir = Math.random() < 0.5 ? -1 : 1;
+    const phase = Math.random() * Math.PI * 2;
+    let nextWhoosh = 0;
+    return startRide({
+        actors: [actor], seats: new Map([[actor, seat]]), seconds, group, follow: 9,
+        scale: Math.max(actor.slotScale, 0.72),
+        update(dt, t) {
+            const k = smooth01(Math.min((t - this.start) / 1.2, (this.until - t) / 1.2));
+            const ang = phase + (t - this.start) * 1.5 * dir;
+            const R = Math.min(layout.halfW * 0.72, 3.3);
+            const cz = (layout.front + layout.back) / 2 + 0.6;
+            rv.set(Math.cos(ang) * R, 2.3 + Math.sin(ang * 2) * 0.45, cz + Math.sin(ang) * R * 0.75);
+            seat.lerpVectors(homeOf(actor), rv, k);
+            const p = actor.group.position, h = actor.height;
+            const flap = 0.82 + 0.18 * Math.sin(t * 16);
+            wings.scale.set(h * 1.5 * flap, h * 0.75, 1);
+            wings.position.set(p.x, p.y + h * 0.62, p.z - 0.06);
+            if (k > 0.2 && Math.random() < 0.7) emit(p.x + rand(-0.2, 0.2), p.y + h * 0.4, p.z, rand(-0.3, 0.3), rand(-0.2, 0.3), 0, pick(NEON), rand(0.6, 1.1), -0.4);
+            if (t >= nextWhoosh && this.until - t > 0.8) { SFX.whoosh(1.1); nextWhoosh = t + 2.1; }
+        }
+    });
+}
+
+// 30 xu: lái máy bay lượn quanh quán, kéo băng rôn tên
+function rideFlyPlane(actor, seconds) {
+    const group = new THREE.Group();
+    const body = new THREE.Group();
+    body.rotation.y = -Math.PI / 2; // dựng dọc trục x, quay để mũi hướng +z (lookAt)
+    group.add(body);
+    const color = pick([0xff3d8b, 0x2bb8ff, 0xffc21a, 0x9b5cff]);
+    const fus = new THREE.Mesh(new THREE.CapsuleGeometry(0.3, 1.9, 6, 14), std(color));
+    fus.rotation.z = Math.PI / 2;
+    body.add(fus);
+    const wing = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.06, 3.2), std(0xffffff));
+    wing.position.set(0.15, -0.05, 0);
+    body.add(wing);
+    const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.07, 3.22), shine(color));
+    stripe.scale.set(0.3, 1, 1);
+    stripe.position.set(0.3, -0.04, 0);
+    body.add(stripe);
+    const fin = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.62, 0.06), std(color));
+    fin.position.set(-1.15, 0.38, 0);
+    body.add(fin);
+    const tail = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.05, 1.15), std(0xffffff));
+    tail.position.set(-1.15, 0.08, 0);
+    body.add(tail);
+    const prop = new THREE.Mesh(new THREE.BoxGeometry(0.05, 1.05, 0.12), std(0x222222));
+    prop.position.set(1.33, 0, 0);
+    body.add(prop);
+    for (const z of [-1.6, 1.6]) {
+        const tip = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 8), shine(z < 0 ? 0xff2244 : 0x22ff88));
+        tip.position.set(0.15, -0.05, z);
+        body.add(tip);
+    }
+    // băng rôn kéo phía sau
+    const bc = document.createElement('canvas');
+    bc.width = 512; bc.height = 112;
+    const bg = bc.getContext('2d');
+    bg.fillStyle = '#fff6d6';
+    roundRect(bg, 4, 4, 504, 104, 18);
+    bg.fill();
+    bg.strokeStyle = '#ff2bd6';
+    bg.lineWidth = 6;
+    bg.stroke();
+    bg.fillStyle = '#2a0b3d';
+    bg.font = '900 52px "Segoe UI", "Segoe UI Emoji", Arial, sans-serif';
+    bg.textAlign = 'center';
+    bg.textBaseline = 'middle';
+    bg.fillText(fitText(bg, '✈ ' + actor.nickname + ' ✈', 470), 256, 58);
+    const btex = new THREE.CanvasTexture(bc);
+    btex.colorSpace = THREE.SRGBColorSpace;
+    const banner = new THREE.Mesh(new THREE.PlaneGeometry(2.8, 0.62), new THREE.MeshBasicMaterial({ map: btex, side: THREE.DoubleSide, transparent: true, toneMapped: false }));
+    banner.rotation.y = Math.PI / 2;
+    banner.position.set(0, 0.1, -3.6);
+    group.add(banner);
+    const rope = new THREE.Mesh(new THREE.BoxGeometry(0.015, 0.015, 1.2), shine(0xdddddd));
+    rope.position.set(0, 0.1, -1.75);
+    group.add(rope);
+
+    const seat = new THREE.Vector3();
+    const dir = Math.random() < 0.5 ? -1 : 1;
+    const a0 = Math.random() * Math.PI * 2;
+    const path = (u, out) => {
+        const r = 7.2 + 9 * (1 - smooth01(u / 0.14)) + 9 * smooth01((u - 0.86) / 0.14);
+        const ang = a0 + u * Math.PI * 2.3 * dir;
+        const cz = (layout.front + layout.back) / 2 - 0.5;
+        return out.set(Math.cos(ang) * r, 5 + Math.sin(u * Math.PI * 4) * 0.7, cz + Math.sin(ang) * r * 0.62);
+    };
+    const motor = SFX.engine('plane');
+    let lastDist = 0;
+    return startRide({
+        actors: [actor], seats: new Map([[actor, seat]]), seconds, group, follow: 30, scale: 0.7,
+        onEnd() { motor?.stop(); },
+        update(dt, t, u) {
+            path(u, rv);
+            if (motor) {
+                const dist = camera.position.distanceTo(rv);
+                const approach = lastDist ? (lastDist - dist) / Math.max(dt, 0.001) : 0;
+                lastDist = dist;
+                const fade = Math.min(1, u / 0.06, (1 - u) / 0.06);
+                motor.set(95 * clamp(1 + approach / 40, 0.75, 1.3), clamp(0.55 - dist / 32, 0.04, 0.45) * fade);
+            }
+            path(Math.min(1, u + 0.01), rv2);
+            group.position.copy(rv);
+            group.lookAt(rv2);
+            group.rotateZ(-0.38 * dir);
+            prop.rotation.x += dt * 40;
+            banner.rotation.x = Math.sin(t * 6) * 0.08;
+            seat.set(rv.x, rv.y + 0.28, rv.z);
+            if (Math.random() < 0.8) {
+                rv2.set(0, 0, -1.3).applyQuaternion(group.quaternion).add(rv);
+                emit(rv2.x, rv2.y, rv2.z, rand(-0.1, 0.1), rand(-0.1, 0.1), rand(-0.1, 0.1), 0xffffff, rand(0.8, 1.4), 0);
+            }
+        }
+    });
+}
+
+// 99 xu: siêu xe chạy vào sàn, drift, đỗ khoe đèn gầm rồi phóng đi
+function rideCar(actor, seconds) {
+    const group = new THREE.Group();
+    const body = new THREE.Group();
+    body.rotation.y = -Math.PI / 2;
+    group.add(body);
+    const color = pick([0xe8101e, 0xffb300, 0x00c2ff, 0xff2bd6, 0x111111]);
+    const profile = new THREE.Shape();
+    profile.moveTo(-1.18, 0.14);
+    profile.lineTo(1.18, 0.14);
+    profile.lineTo(1.24, 0.28);
+    profile.quadraticCurveTo(1.05, 0.4, 0.42, 0.44);
+    profile.quadraticCurveTo(0.08, 0.74, -0.38, 0.72);
+    profile.quadraticCurveTo(-0.9, 0.64, -1.14, 0.46);
+    profile.lineTo(-1.18, 0.14);
+    const shell = new THREE.ExtrudeGeometry(profile, { depth: 1.0, bevelEnabled: true, bevelSize: 0.05, bevelThickness: 0.06, bevelSegments: 2, curveSegments: 10 });
+    shell.translate(0, 0, -0.5);
+    body.add(new THREE.Mesh(shell, std(color, { metalness: 0.75, roughness: 0.22 })));
+    const glass = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.2, 0.9), std(0x0b1020, { metalness: 0.9, roughness: 0.1 }));
+    glass.position.set(-0.08, 0.6, 0);
+    glass.rotation.z = 0.12;
+    body.add(glass);
+    const wheelGeo = new THREE.CylinderGeometry(0.22, 0.22, 0.18, 18);
+    const wheels = [];
+    for (const x of [-0.74, 0.74]) for (const z of [-0.54, 0.54]) {
+        const w = new THREE.Mesh(wheelGeo, std(0x111111, { metalness: 0.2, roughness: 0.8 }));
+        w.rotation.x = Math.PI / 2;
+        w.position.set(x, 0.22, z);
+        const rim = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.19, 10), std(0xdddddd, { metalness: 1, roughness: 0.2 }));
+        w.add(rim);
+        body.add(w);
+        wheels.push(w);
+    }
+    for (const z of [-0.34, 0.34]) {
+        const hl = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.08, 0.24), shine(0xfff6c0));
+        hl.position.set(1.22, 0.3, z);
+        body.add(hl);
+        const tl = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.07, 0.28), shine(0xff1030));
+        tl.position.set(-1.2, 0.36, z);
+        body.add(tl);
+    }
+    const under = new THREE.Mesh(new THREE.PlaneGeometry(2.8, 1.5), new THREE.MeshBasicMaterial({ map: DOT, color: 0x00e5ff, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+    under.rotation.x = -Math.PI / 2;
+    under.position.y = 0.03;
+    group.add(under);
+
+    const seat = new THREE.Vector3();
+    const from = Math.random() < 0.5 ? -1 : 1;
+    let heading = new THREE.Vector3(-from, 0, 0);
+    const lane = () => layout.front + 1.0;
+    const pos = (u, out) => {
+        const off = layout.halfW + 6;
+        if (u < 0.22) return out.set(from * off * (1 - smooth01(u / 0.22)), 0, lane());           // chạy vào
+        if (u < 0.5) {                                                                                 // drift vòng tròn
+            const a = ((u - 0.22) / 0.28) * Math.PI * 4;
+            return out.set(Math.sin(a) * 0.9, 0, lane() - 0.9 + Math.cos(a) * 0.9);
+        }
+        if (u < 0.8) return out.set(0, 0, lane());                                                    // đỗ khoe
+        return out.set(-from * off * smooth01((u - 0.8) / 0.2) ** 1.5, 0, lane());                    // phóng đi
+    };
+    const motor = SFX.engine('car');
+    let screeched = false, lastBar = -1;
+    return startRide({
+        actors: [actor], seats: new Map([[actor, seat]]), seconds, group, follow: 30, scale: 0.72,
+        onEnd() { motor?.stop(); },
+        update(dt, t, u, beat) {
+            pos(u, rv);
+            if (motor) {
+                let rpm, vol = 0.32;
+                if (u < 0.22) rpm = 210 - 130 * smooth01(u / 0.22);
+                else if (u < 0.5) rpm = 170 + Math.sin(t * 9) * 20;
+                else if (u < 0.8) {
+                    rpm = 55;
+                    if (beat.bar !== lastBar) { lastBar = beat.bar; rpm = 190; }   // nẹt pô mỗi ô nhịp
+                    vol = 0.24;
+                } else rpm = 90 + 200 * smooth01((u - 0.8) / 0.2);
+                motor.set(rpm, vol * Math.min(1, u / 0.04, (1 - u) / 0.05));
+            }
+            if (!screeched && u > 0.22) { screeched = true; SFX.screech(this.seconds * 0.28); }
+            pos(Math.min(1, u + 0.004), rv2);
+            const moving = rv2.distanceToSquared(rv) > 1e-6;
+            if (moving) heading.subVectors(rv2, rv).normalize();
+            group.position.copy(rv);
+            rv2.copy(rv).add(heading);
+            group.lookAt(rv2);
+            const spin = moving ? dt * 14 : 0;
+            for (const w of wheels) w.rotation.y += spin;
+            under.material.color.setHSL((t * 0.4) % 1, 1, 0.5);
+            under.material.opacity = 0.6 + beat.pulse * 0.4;
+            seat.set(rv.x, 0.5, rv.z);
+            if (u > 0.22 && u < 0.5 && Math.random() < 0.9) {
+                emit(rv.x + rand(-0.6, 0.6), 0.15, rv.z + rand(-0.4, 0.4), rand(-0.4, 0.4), rand(0.3, 0.9), rand(-0.4, 0.4), 0xbbbbbb, rand(0.8, 1.4), 0.2);
+            }
+            if (u >= 0.5 && u < 0.8 && Math.random() < 0.25) emit(rv.x + rand(-1, 1), rand(0.6, 1.6), rv.z + rand(-0.5, 0.5), 0, rand(0.4, 1), 0, pick([0xffd54a, 0xffffff]), 0.8, -0.5);
+        }
+    });
+}
+
+// 199 xu: lễ cưới với một người trên sàn
+function pickPartner(actor) {
+    const others = [...players.values()].filter(a => a !== actor && !a.ride);
+    const real = others.filter(a => !a.isNpc).sort((a, b) => b.lastActive - a.lastActive);
+    return real[0] || (others.length ? pick(others) : null);
+}
+function rideMarry(actor, partner, seconds) {
+    const group = new THREE.Group();
+    const cz = layout.front - 0.9;
+    const arch = new THREE.Mesh(new THREE.TorusGeometry(1.45, 0.06, 8, 48, Math.PI), shine(0xfff0c8));
+    arch.position.set(0, 0, cz - 0.55);
+    group.add(arch);
+    const flowerGeo = new THREE.SphereGeometry(0.11, 10, 8);
+    for (let i = 0; i <= 22; i++) {
+        const a = (i / 22) * Math.PI;
+        const f = new THREE.Mesh(flowerGeo, shine(i % 3 === 0 ? 0xffffff : i % 3 === 1 ? 0xff5fa8 : 0xff2b6a));
+        f.position.set(Math.cos(a) * 1.45, Math.sin(a) * 1.45, cz - 0.5);
+        f.scale.setScalar(0.8 + Math.random() * 0.6);
+        group.add(f);
+    }
+    const carpet = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 5.5), new THREE.MeshBasicMaterial({ color: 0xb0102e, toneMapped: false }));
+    carpet.rotation.x = -Math.PI / 2;
+    carpet.position.set(0, 0.025, cz + 2.4);
+    group.add(carpet);
+    const ring = new THREE.Group();
+    ring.add(new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.04, 10, 32), shine(0xffd54a)));
+    const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.09), shine(0xe8fbff));
+    gem.position.y = 0.25;
+    ring.add(gem);
+    ring.position.set(0, 2.35, cz);
+    group.add(ring);
+    const heart = canvasSprite(256, 256, (g) => {
+        g.fillStyle = '#ff2b6a';
+        g.shadowColor = '#ff8cc0';
+        g.shadowBlur = 24;
+        g.beginPath();
+        g.moveTo(128, 214);
+        g.bezierCurveTo(20, 140, 30, 40, 128, 84);
+        g.bezierCurveTo(226, 40, 236, 140, 128, 214);
+        g.fill();
+    });
+    heart.scale.set(0.9, 0.9, 1);
+    heart.position.set(0, 1.55, cz - 0.5);
+    group.add(heart);
+
+    const seatA = new THREE.Vector3(-0.48, 0, cz), seatB = new THREE.Vector3(0.48, 0, cz);
+    const sc = Math.max(actor.slotScale, partner.slotScale, 0.78);
+    actor.showTitle('💍 ' + partner.nickname, 'royal', 60);
+    partner.showTitle('💍 ' + actor.nickname, 'royal', 60);
+    confetti(320);
+    SFX.bells();
+    let kissed = false;
+    return startRide({
+        actors: [actor, partner], seats: new Map([[actor, seatA], [partner, seatB]]), seconds, group, follow: 2.6, scale: sc,
+        update(dt, t, u, beat) {
+            ring.rotation.y += dt * 2.2;
+            ring.position.y = 2.35 + Math.sin(t * 2) * 0.08;
+            heart.material.opacity = smooth01((u - 0.2) / 0.1);
+            const hs = 0.8 + beat.pulse * 0.25;
+            heart.scale.set(hs, hs, 1);
+            if (!kissed && u > 0.45) {
+                kissed = true;
+                burst(0, 2.2, cz, 0xff5fa8, 220, 3.5);
+                fireworks(3);
+                actor.celebrate(4);
+                partner.celebrate(4);
+            }
+            if (Math.random() < 0.5) emit(rand(-1.6, 1.6), rand(0.2, 2.6), cz + rand(-0.3, 0.3), 0, rand(0.3, 0.8), 0, pick([0xff5fa8, 0xff2b6a, 0xffffff]), rand(1, 1.6), -0.2);
+        }
+    });
+}
+
+// ───────────────────────── Biểu cảm từ chat (😂 ❤️ 🔥 👏 ...) bay lên trên đầu ─────────────────────────
+const EMOTE_RULES = [
+    { emoji: '😂', words: ['haha', 'hihi', 'hehe', 'kkk', 'hjhj', '=))', ':))', 'lol', 'cuoi', 'buon cuoi', 'xd'] },
+    { emoji: '❤️', words: ['<3', 'yeu', 'love', 'thuong', 'iu', 'tha tim', 'tym'] },
+    { emoji: '🔥', words: ['dinh', '666', 'chay', 'hay qua', 'qua da', 'phe', 'cuc chay', 'banh'] },
+    { emoji: '👏', words: ['gg', 'vo tay', 'clap', 'bravo', 'hoan ho', 'tuyet', 'gioi'] },
+    { emoji: '😮', words: ['wow', 'woa', 'ghe', 'omg', 'tron mat', 'vai'] },
+    { emoji: '😴', words: ['ngu', 'buon ngu', 'zzz'] },
+    { emoji: '😭', words: ['huhu', 'khoc', 'buon', 'hic'] },
+    { emoji: '💃', words: ['quay', 'quay len', 'dance', 'len nhac'] },
+    { emoji: '💸', words: ['tien', 'giau', 'money', 'dai gia'] },
+    { emoji: '👋', words: ['chao', 'xin chao', 'bye', 'tam biet'] }
+];
+const EMOJI_RE = /\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*/u;
+function emoteFor(comment) {
+    const raw = String(comment || '');
+    const direct = raw.match(EMOJI_RE);
+    if (direct) return direct[0];
+    const text = ' ' + normalize(raw).replace(/[^a-z0-9<=:)]+/g, ' ') + ' ';
+    for (const rule of EMOTE_RULES) {
+        if (rule.words.some(w => /^[a-z0-9 ]+$/.test(w) ? text.includes(' ' + w + ' ') : text.includes(w))) return rule.emoji;
+    }
+    if (/(ha){2,}|(hi){2,}|(he){2,}|k{3,}/.test(text)) return '😂';
+    return null;
+}
+const emoteTextures = new Map();
+function emoteTexture(emoji) {
+    if (!emoteTextures.has(emoji)) {
+        const c = document.createElement('canvas');
+        c.width = c.height = 128;
+        const g = c.getContext('2d');
+        g.font = '96px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif';
+        g.textAlign = 'center';
+        g.textBaseline = 'middle';
+        g.fillText(emoji, 64, 70);
+        const tex = new THREE.CanvasTexture(c);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        emoteTextures.set(emoji, tex);
+        if (emoteTextures.size > 60) { const [k, old] = emoteTextures.entries().next().value; old.dispose(); emoteTextures.delete(k); }
+    }
+    return emoteTextures.get(emoji);
+}
+const emotes = [];
+function spawnEmote(actor, emoji, count = 1) {
+    for (let i = 0; i < count; i++) {
+        const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ color: SPRITE_TINT, map: emoteTexture(emoji), transparent: true, depthTest: false, depthWrite: false }));
+        sprite.renderOrder = 13;
+        actorsGroup.add(sprite);
+        emotes.push({ sprite, actor, start: clock.elapsed + i * 0.22, life: 1.8, dx: rand(-0.45, 0.45), wob: rand(0, 6) });
+    }
+    while (emotes.length > 80) { const e = emotes.shift(); actorsGroup.remove(e.sprite); e.sprite.material.dispose(); }
+}
+function updateEmotes(dt, t) {
+    for (let i = emotes.length - 1; i >= 0; i--) {
+        const e = emotes[i];
+        const k = (t - e.start) / e.life;
+        if (k >= 1 || !players.has(e.actor.userId)) {
+            actorsGroup.remove(e.sprite);
+            e.sprite.material.dispose();
+            emotes.splice(i, 1);
+            continue;
+        }
+        if (k < 0) { e.sprite.visible = false; continue; }
+        e.sprite.visible = true;
+        const p = e.actor.group.position, h = e.actor.height;
+        const size = clamp(h * 0.42, 0.35, 0.9) * (k < 0.15 ? 0.4 + 4 * k : 1);
+        e.sprite.scale.set(size, size, 1);
+        e.sprite.position.set(p.x + e.dx + Math.sin(t * 5 + e.wob) * 0.08, p.y + h * 1.05 + k * 1.3, p.z + 0.05);
+        e.sprite.material.opacity = k > 0.7 ? (1 - k) / 0.3 : 1;
+    }
+}
 
 // ───────────────────────── Camera ─────────────────────────
 const cam = { pos: new THREE.Vector3(0, 6, 18), look: new THREE.Vector3(0, 1.3, -1), basePos: new THREE.Vector3(), baseLook: new THREE.Vector3(), shot: null };
@@ -965,9 +1429,24 @@ function updateCamera(dt, t, beat) {
         if (cam.shot.kind === 'fireworks') {
             tmpV.set(p.x * 0.5, 3.6, p.z + 10 * far);
             tmpL.set(p.x * 0.5, 3.2, p.z - 2);
+        } else if (cam.shot.kind === 'track') {
+            // máy bay: đứng gần chỗ cũ, ngước theo
+            tmpV.copy(cam.basePos).lerp(p, 0.28);
+            tmpV.y = Math.max(tmpV.y, p.y * 0.55 + 2.2);
+            tmpL.copy(p);
+        } else if (cam.shot.kind === 'chase') {
+            // siêu xe: góc thấp phía trước
+            tmpV.set(p.x * 0.55, 1.5, p.z + 4.6 * far);
+            tmpL.set(p.x, 0.75, p.z);
+        } else if (cam.shot.kind === 'pair' && cam.shot.pair && players.has(cam.shot.pair.userId)) {
+            // lễ cưới: khung hai người + cổng hoa
+            const q = cam.shot.pair.group.position;
+            const mx = (p.x + q.x) / 2, mz = (p.z + q.z) / 2;
+            tmpV.set(mx + Math.sin(t * 0.25) * 0.5, 2.1, mz + 5 * far);
+            tmpL.set(mx, 1.35, mz - 0.3);
         } else if (cam.shot.wide) {
-            tmpV.set(p.x, 2.6 + h * 0.3, p.z + (6.5 + h) * far);
-            tmpL.set(p.x, h * 0.55, p.z);
+            tmpV.set(p.x, p.y + 2.6 + h * 0.3, p.z + (6.5 + h) * far);
+            tmpL.set(p.x, p.y + h * 0.55, p.z);
         } else {
             const react = cam.shot.kind === 'react' || cam.shot.kind === 'welcome';
             const dist = (cam.shot.close ? 2.6 : react ? 3.4 : 3.8) + h * 1.1;
@@ -997,6 +1476,7 @@ function updateCamera(dt, t, beat) {
 function applyLayout() {
     const w = window.innerWidth, h = window.innerHeight;
     renderer.setSize(w, h, false);
+    composer?.setSize(w, h);
     const aspect = w / h;
     camera.aspect = aspect;
     camera.fov = aspect < 1 ? 50 : 42;
@@ -1034,7 +1514,7 @@ window.addEventListener('resize', applyLayout);
 let dj = null;
 function createDj() {
     const name = characters.hanhan_video_dance ? 'hanhan_video_dance' : characterNames[0];
-    const mat = new THREE.SpriteMaterial({ map: characters[name].frames[0], transparent: true, alphaTest: 0.08 });
+    const mat = new THREE.SpriteMaterial({ color: SPRITE_TINT, map: characters[name].frames[0], transparent: true, alphaTest: 0.08 });
     const sprite = new THREE.Sprite(mat);
     sprite.center.set(0.5, 0);
     const h = 3;
@@ -1089,7 +1569,7 @@ function updateLights(dt, t, beat) {
         else v = 0.5 + 0.5 * Math.sin(x * 0.9 + beat.beats * Math.PI * 0.5);
         const hue = (t * 0.04 + x * 0.025 + z * 0.02 + (hot ? beat.bar * 0.17 : 0)) % 1;
         const intensity = 0.04 + v * (0.16 + 0.42 * beat.pulse) * (hot ? 1.35 : 1);
-        tmpColor.setHSL(hue, 1, 0.5).multiplyScalar(intensity);
+        tmpColor.setHSL(hue, 1, 0.5).multiplyScalar(intensity * (settings.bloom ? 1.6 : 1));
         tiles.setColorAt(i, tmpColor);
     }
     tiles.instanceColor.needsUpdate = true;
@@ -1148,9 +1628,9 @@ function updateLights(dt, t, beat) {
         light.color.setHSL((t * 0.05 + i * 0.25) % 1, 1, 0.55);
     });
     tmpColor.setHSL((t * 0.1) % 1, 1, 0.55);
-    stageEdge.material.color.copy(tmpColor).multiplyScalar(0.6 + beat.pulse);
-    boothStrip.material.color.setHSL((t * 0.1 + 0.5) % 1, 1, 0.5 + beat.pulse * 0.2);
-    for (let r = 1; r <= 3; r++) PODIUMS[r].ring.material.color.set(PODIUMS[r].color).multiplyScalar(0.7 + beat.pulse * 0.8);
+    stageEdge.material.color.copy(tmpColor).multiplyScalar((0.6 + beat.pulse) * GLOW);
+    boothStrip.material.color.setHSL((t * 0.1 + 0.5) % 1, 1, 0.5 + beat.pulse * 0.2).multiplyScalar(GLOW);
+    for (let r = 1; r <= 3; r++) PODIUMS[r].ring.material.color.set(PODIUMS[r].color).multiplyScalar((0.7 + beat.pulse * 0.8) * GLOW);
     disco.rotation.y += dt * 0.6;
     const hp = haze.geometry.attributes.position.array;
     for (let i = 0; i < hazeCount; i++) {
@@ -1234,7 +1714,127 @@ function onAudioUnlocked() {
         });
     } catch {}
 }
+// ───────────────────────── Âm thanh hiệu ứng: tạo bằng WebAudio, không cần file, không lo bản quyền ─────────────────────────
+let sfxCtx = null, sfxBus = null, noiseBuf = null;
+const sfxLast = {};
+function sfxReady() {
+    if (!settings.sfx) return null;
+    try {
+        if (!sfxCtx) {
+            sfxCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const comp = sfxCtx.createDynamicsCompressor();
+            sfxBus = sfxCtx.createGain();
+            sfxBus.gain.value = 0.4;
+            sfxBus.connect(comp);
+            comp.connect(sfxCtx.destination);
+            noiseBuf = sfxCtx.createBuffer(1, sfxCtx.sampleRate * 2, sfxCtx.sampleRate);
+            const d = noiseBuf.getChannelData(0);
+            for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+        }
+        if (sfxCtx.state === 'suspended') sfxCtx.resume().catch(() => {});
+        return sfxCtx.state === 'running' ? sfxCtx : null;
+    } catch { return null; }
+}
+function sfxGate(name, ms) {
+    const now = performance.now();
+    if (sfxLast[name] && now - sfxLast[name] < ms) return false;
+    sfxLast[name] = now;
+    return true;
+}
+function envGain(ctx, t, attack, dur, vol) {
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.0002, vol), t + attack);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    return g;
+}
+function tone(ctx, { type = 'sine', f0, f1 = f0, t0 = 0, dur, vol = 0.4, attack = 0.005 }) {
+    const t = ctx.currentTime + t0;
+    const o = ctx.createOscillator();
+    o.type = type;
+    o.frequency.setValueAtTime(f0, t);
+    if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    const g = envGain(ctx, t, attack, dur, vol);
+    o.connect(g);
+    g.connect(sfxBus);
+    o.start(t);
+    o.stop(t + dur + 0.05);
+}
+function hiss(ctx, { t0 = 0, dur, vol = 0.25, type = 'bandpass', f0 = 1000, f1 = f0, q = 1, attack = 0.02 }) {
+    const t = ctx.currentTime + t0;
+    const src = ctx.createBufferSource();
+    src.buffer = noiseBuf;
+    src.loop = true;
+    const flt = ctx.createBiquadFilter();
+    flt.type = type;
+    flt.Q.value = q;
+    flt.frequency.setValueAtTime(f0, t);
+    if (f1 !== f0) flt.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    const g = envGain(ctx, t, attack, dur, vol);
+    src.connect(flt);
+    flt.connect(g);
+    g.connect(sfxBus);
+    src.start(t, Math.random());
+    src.stop(t + dur + 0.05);
+}
+const SFX = {
+    ting() { const c = sfxReady(); if (!c || !sfxGate('ting', 180)) return; tone(c, { f0: 1318, dur: 0.18, vol: 0.22 }); tone(c, { f0: 1760, t0: 0.09, dur: 0.32, vol: 0.2 }); },
+    pop() { const c = sfxReady(); if (!c || !sfxGate('pop', 120)) return; tone(c, { f0: 720, f1: 110, dur: 0.14, vol: 0.45 }); hiss(c, { type: 'highpass', f0: 3000, dur: 0.06, vol: 0.15, attack: 0.003 }); },
+    zoom() { const c = sfxReady(); if (!c || !sfxGate('zoom', 400)) return; tone(c, { type: 'triangle', f0: 380, f1: 1500, dur: 0.32, vol: 0.16 }); hiss(c, { f0: 500, f1: 4000, dur: 0.35, vol: 0.08 }); },
+    chime() { const c = sfxReady(); if (!c || !sfxGate('chime', 300)) return; [1568, 2093, 2637].forEach((f, i) => tone(c, { f0: f, t0: i * 0.07, dur: 0.5, vol: 0.13 })); },
+    blip() { const c = sfxReady(); if (!c || !sfxGate('blip', 160)) return; tone(c, { type: 'triangle', f0: 900, f1: 1500, dur: 0.09, vol: 0.12 }); },
+    bloop() { const c = sfxReady(); if (!c || !sfxGate('bloop', 450)) return; tone(c, { f0: 520, f1: 880, dur: 0.12, vol: 0.12 }); },
+    whoosh(dur = 1) { const c = sfxReady(); if (!c) return; hiss(c, { f0: 280, f1: 2600, dur: dur * 0.55, vol: 0.32, q: 0.8, attack: dur * 0.3 }); hiss(c, { t0: dur * 0.5, f0: 2600, f1: 260, dur: dur * 0.5, vol: 0.28, q: 0.8 }); },
+    screech(dur = 1.5) { const c = sfxReady(); if (!c) return; hiss(c, { f0: 2400, f1: 3100, dur, vol: 0.16, q: 7, attack: 0.08 }); },
+    bells() {
+        const c = sfxReady(); if (!c || !sfxGate('bells', 3000)) return;
+        [1046.5, 1318.5, 1568, 2093, 1568, 2093].forEach((f, i) => {
+            const t0 = i * 0.3;
+            tone(c, { f0: f, t0, dur: 1.8, vol: 0.2, attack: 0.004 });
+            tone(c, { f0: f * 2.76, t0, dur: 0.9, vol: 0.05, attack: 0.002 });
+            tone(c, { f0: f * 5.4, t0, dur: 0.4, vol: 0.025, attack: 0.002 });
+        });
+    },
+    // tiếng động cơ chạy liên tục (máy bay / siêu xe): set(tần số, âm lượng) mỗi khung hình, stop() khi xong
+    engine(kind) {
+        const c = sfxReady(); if (!c) return null;
+        const o1 = c.createOscillator(), o2 = c.createOscillator(), lfo = c.createOscillator();
+        o1.type = 'sawtooth'; o2.type = 'square';
+        const base = kind === 'car' ? 60 : 95;
+        o1.frequency.value = base; o2.frequency.value = base * 0.5;
+        const lp = c.createBiquadFilter();
+        lp.type = 'lowpass';
+        lp.frequency.value = kind === 'car' ? 950 : 750;
+        const mod = c.createGain(); mod.gain.value = 1;
+        const lfoDepth = c.createGain(); lfoDepth.gain.value = kind === 'car' ? 0.15 : 0.35;
+        lfo.frequency.value = kind === 'car' ? 30 : 22;
+        lfo.connect(lfoDepth); lfoDepth.connect(mod.gain);
+        const out = c.createGain(); out.gain.value = 0.0001;
+        const o2g = c.createGain(); o2g.gain.value = 0.5;
+        o1.connect(lp); o2.connect(o2g); o2g.connect(lp); lp.connect(mod); mod.connect(out); out.connect(sfxBus);
+        o1.start(); o2.start(); lfo.start();
+        let stopped = false;
+        return {
+            set(freq, vol) {
+                if (stopped) return;
+                const t = c.currentTime;
+                o1.frequency.setTargetAtTime(freq, t, 0.06);
+                o2.frequency.setTargetAtTime(freq * 0.5, t, 0.06);
+                out.gain.setTargetAtTime(Math.max(0.0001, vol), t, 0.08);
+            },
+            stop() {
+                if (stopped) return;
+                stopped = true;
+                const t = c.currentTime;
+                out.gain.setTargetAtTime(0.0001, t, 0.15);
+                for (const o of [o1, o2, lfo]) o.stop(t + 0.8);
+            }
+        };
+    }
+};
+
 function unlock() {
+    sfxReady();
     if (audioUnlocked) return;
     if (playlist.length) playTrack();
     else { audioUnlocked = true; document.getElementById('sound-hint').hidden = true; }
@@ -1386,7 +1986,9 @@ function renderGuide(msg) {
         const s = document.createElement('span');
         s.className = 'item';
         if (item.giftPictureUrl) { const img = document.createElement('img'); img.src = item.giftPictureUrl; img.alt = ''; s.append(img); }
-        s.append(`${item.giftName}${item.diamondCount ? ` (${item.diamondCount}💎)` : ''}: `);
+        else if (ACTION_ICONS[item.action]) { const ic = document.createElement('span'); ic.className = 'ic'; ic.textContent = ACTION_ICONS[item.action]; s.append(ic); }
+        if (item.giftName) s.append(`${item.giftName}${item.diamondCount ? ` (${item.diamondCount}💎)` : ''}: `);
+        else if (item.diamondCount) { const c = document.createElement('i'); c.className = 'coin'; c.textContent = item.diamondCount + '💎'; s.append(c); }
         const b = document.createElement('b'); b.textContent = item.label; s.append(b);
         parts.push(s);
     }
@@ -1418,7 +2020,7 @@ function showNextBanner() {
     const { ev, ms } = next;
     document.getElementById('banner-avatar').src = ev.avatar ? `/api/avatar?u=${encodeURIComponent(ev.avatar)}` : '/favicon.svg';
     document.getElementById('banner-label').textContent = ev.label || 'CẢM ƠN QUÀ';
-    document.getElementById('banner-name').textContent = ev.nickname || 'TikTok user';
+    document.getElementById('banner-name').textContent = ev.bannerName || ev.nickname || 'TikTok user';
     document.getElementById('banner-gift-img').src = ev.giftPictureUrl || '';
     const repeat = ev.repeatCount > 1 ? ` x${ev.repeatCount}` : '';
     document.getElementById('banner-gift-text').textContent = `tặng ${ev.giftName || 'quà'}${repeat} · ${formatNumber(ev.diamondCount)}💎`;
@@ -1434,10 +2036,25 @@ function showNextBanner() {
 function applyAction(actor, ev, seconds) {
     const a = ev.action;
     if (a === 'join') { /* về chỗ của mình */ }
-    else if (a === 'change') actor.changeCharacter();
+    else if (a === 'change') { actor.changeCharacter(); SFX.pop(); }
     else if (a === 'walk') actor.walk(seconds);
     else if (a === 'jump') actor.jump(seconds);
     else if (a === 'grow') actor.grow(seconds);
+    else if (a === 'camera') { actor.celebrate(clamp(seconds, 2.5, 15)); SFX.zoom(); }
+    else if (a === 'fly') { rideFly(actor, seconds); actor.dance(seconds); }
+    else if (a === 'plane') { rideFlyPlane(actor, seconds); actor.dance(seconds); }
+    else if (a === 'car') { rideCar(actor, seconds); actor.dance(seconds); }
+    else if (a === 'marry') {
+        const partner = pickPartner(actor);
+        if (partner) {
+            rideMarry(actor, partner, seconds);
+            actor.dance(seconds);
+            partner.dance(seconds);
+            partner.touch();
+            ev.partner = partner;
+            ev.bannerName = actor.nickname + ' 💞 ' + partner.nickname;
+        } else actor.celebrate(clamp(seconds, 2.5, 15));
+    }
     else if (SPOTLIGHT_ACTIONS.has(a)) actor.celebrate(clamp(seconds, 2.5, 15));
     else actor.dance(clamp(seconds, 2, 10));
     if (ev.label && (a === 'medal' || a === 'vip' || a === 'topdj')) {
@@ -1504,6 +2121,16 @@ function handleEvent(ev) {
 
     if (ev.type === 'chat') {
         actor.say(isNew && ev.action === 'join' ? '👋 ' + ev.comment : ev.comment, 5);
+        const emoji = emoteFor(ev.comment);
+        if (emoji) {
+            // cười nhiều "hahaha" -> nhiều mặt cười
+            const repeats = (normalize(ev.comment).match(/ha|hi|he|k/g) || []).length;
+            spawnEmote(actor, emoji, emoji === '😂' ? clamp(Math.floor(repeats / 2), 1, 4) : emoji === '❤️' || emoji === '🔥' ? 2 : 1);
+            if (emoji === '❤️') actor.hearts(8);
+            if (emoji === '💃') actor.dance(5);
+            if (emoji === '👏' || emoji === '🔥') actor.celebrate(2);
+            SFX.blip();
+        }
         if (ev.action) applyAction(actor, ev, ev.durationMs > 0 ? ev.durationMs / 1000 : 5);
         else {
             const c = normalize(ev.comment);
@@ -1522,8 +2149,10 @@ function handleEvent(ev) {
     } else if (ev.type === 'follow' || ev.type === 'share') {
         actor.celebrate(3);
         actor.say(ev.type === 'follow' ? '💖 Đã follow!' : '📣 Đã chia sẻ live!', 3);
+        SFX.chime();
     } else if (ev.type === 'like') {
         actor.hearts(clamp(Math.round((ev.likeCount || 1) / 2), 4, 16));
+        SFX.bloop();
         if (!actor.action) actor.jump(1.2);
     } else if (ev.type === 'member' && isNew) {
         actor.say('👋 Hello mọi người!', 3);
@@ -1531,14 +2160,20 @@ function handleEvent(ev) {
 
     const joinFocus = ev.action === 'join' && ev.joinedNow;
     const socialFocus = ev.type === 'follow' || ev.type === 'share';
-    const wantsFocus = joinFocus || socialFocus || ['camera', 'walk', 'vip', 'topdj', 'fireworks', 'medal'].includes(ev.action);
+    const wantsFocus = joinFocus || socialFocus || ['camera', 'walk', 'vip', 'topdj', 'fireworks', 'medal', 'fly', 'plane', 'car', 'marry'].includes(ev.action);
     if (wantsFocus && ['gift', 'chat', 'follow', 'share'].includes(ev.type)) {
         const seconds = ev.durationMs > 0 ? ev.durationMs / 1000 : socialFocus ? 2 : joinFocus ? 2.5 : 3;
+        if (joinFocus) SFX.ting();
         if (joinFocus || socialFocus) cameraFocus(actor, seconds, { kind: 'welcome' });
         else if (ev.action === 'fireworks') cameraFocus(actor, Math.max(6, seconds), { kind: 'fireworks' });
+        else if (ev.action === 'fly') cameraFocus(actor, seconds, { kind: 'gift', wide: true });
+        else if (ev.action === 'plane') cameraFocus(actor, seconds, { kind: 'track' });
+        else if (ev.action === 'car') cameraFocus(actor, seconds, { kind: 'chase' });
+        else if (ev.action === 'marry' && ev.partner) cameraFocus(actor, seconds, { kind: 'pair', pair: ev.partner });
         else cameraFocus(actor, clamp(seconds, 2.5, 15), { kind: 'gift', close: ev.action === 'vip' || ev.action === 'topdj' || ev.diamondCount >= 100, wide: ev.action === 'walk' });
-        if (!joinFocus && !socialFocus) focusPlayer(ev.userId, clamp(seconds, 2.5, 15));
+        if (!joinFocus && !socialFocus) focusPlayer(ev.userId, clamp(seconds, 2.5, 15), ev.partner?.userId || null);
     } else if (isNew) {
+        SFX.ting();
         // người mới lên sàn (vào phòng khi bật "mọi tương tác", tặng quà...) -> chào
         cameraFocus(actor, 2.5, { kind: 'welcome' });
     } else if (ev.type === 'chat') {
@@ -1600,12 +2235,12 @@ function connect() {
 // Giả lập tại chỗ (?demo=N) để xem thử không cần live
 function startLocalDemo(n) {
     const gifts = [
-        { giftName: 'Rose', diamondCount: 1, action: 'camera', label: 'ZOOM CAMERA', durationMs: 4000 },
-        { giftName: 'TikTok', diamondCount: 1, action: 'change', label: 'ĐỔI NHÂN VẬT', durationMs: 2500 },
-        { giftName: 'Finger Heart', diamondCount: 5, action: 'walk', label: 'ĐI VÒNG', durationMs: 5000 },
-        { giftName: 'Rosa', diamondCount: 10, action: 'medal', label: 'CÁNH VIP', variant: 'neon', durationMs: 60000, spotlightMs: 6000 },
-        { giftName: 'Portal', diamondCount: 99, action: 'grow', label: 'NHÂN VẬT KHỔNG LỒ', durationMs: 8000 },
-        { giftName: 'Galaxy', diamondCount: 1000, action: 'topdj', label: 'TOP DJ', durationMs: 12000, fireworkBursts: 6 }
+        { giftName: 'Rose', diamondCount: 1, action: 'camera', label: '🔍 ZOOM CAMERA', durationMs: 4000 },
+        { giftName: 'Finger Heart', diamondCount: 5, action: 'change', label: '🔄 ĐỔI NHÂN VẬT', durationMs: 3000 },
+        { giftName: 'Rosa', diamondCount: 10, action: 'fly', label: '🌀 BAY VÒNG VÒNG', durationMs: 9000 },
+        { giftName: 'Perfume', diamondCount: 30, action: 'plane', label: '✈️ MÁY BAY', durationMs: 12000 },
+        { giftName: 'Hand Hearts', diamondCount: 99, action: 'car', label: '🏎️ SIÊU XE', durationMs: 12000 },
+        { giftName: 'Corgi', diamondCount: 199, action: 'marry', label: '💍 KẾT HÔN', durationMs: 15000, fireworkBursts: 4 }
     ];
     const users = Array.from({ length: n }, (_, i) => ({ userId: `demo-${i}`, uniqueId: `demo_${i}`, nickname: `Khách ${i + 1}` }));
     users.forEach((u, i) => setTimeout(() => handleEvent({ type: 'chat', ...u, comment: 'hey', action: 'join', joinedNow: i < 3, durationMs: 2000 }), i * 60));
@@ -1634,13 +2269,18 @@ function frame(now) {
     if (t >= nextNpcRefillAt) ensureNpcCrowd();
     const cutoff = performance.now() - cfg.ttlMs;
     for (const a of [...players.values()]) if (!a.isNpc && a.lastActive < cutoff) removeActor(a.userId);
+    updateRides(dt, t, beat);
     for (const a of players.values()) a.update(dt, t, beat);
     updateDj(dt, beat);
     updateLights(dt, t, beat);
     updateParticles(dt);
     if (screenSource === 'procedural' && Math.floor(t * 30) % 2 === 0) drawProceduralScreen(t, beat);
     updateCamera(dt, t, beat);
-    renderer.render(scene, camera);
+    updateEmotes(dt, t);
+    if (composer) {
+        bloomPass.strength = 0.55 + beat.pulse * 0.35 + ((beat.inDrop || party.until > t) ? 0.25 : 0);
+        composer.render(dt);
+    } else renderer.render(scene, camera);
     requestAnimationFrame(frame);
 }
 

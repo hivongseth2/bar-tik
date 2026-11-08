@@ -1,36 +1,49 @@
 {
   "byGiftId": {},
-  "byGiftName": [
+  "byGiftName": [],
+  "priceTiers": [
     {
-      "aliases": ["rose", "hoa hồng", "hoa hong"],
+      "minimum": 199,
+      "action": "marry",
+      "durationMs": 15000,
+      "label": "💍 KẾT HÔN",
+      "short": "KẾT HÔN",
+      "fireworkBursts": 4
+    },
+    {
+      "minimum": 99,
+      "action": "car",
+      "durationMs": 12000,
+      "label": "🏎️ SIÊU XE",
+      "short": "SIÊU XE"
+    },
+    {
+      "minimum": 30,
+      "action": "plane",
+      "durationMs": 12000,
+      "label": "✈️ MÁY BAY",
+      "short": "MÁY BAY"
+    },
+    {
+      "minimum": 10,
+      "action": "fly",
+      "durationMs": 9000,
+      "label": "🌀 BAY VÒNG VÒNG",
+      "short": "BAY VÒNG"
+    },
+    {
+      "minimum": 5,
+      "action": "change",
+      "durationMs": 3000,
+      "label": "🔄 ĐỔI NHÂN VẬT",
+      "short": "ĐỔI NV"
+    },
+    {
+      "minimum": 1,
       "action": "camera",
       "durationMs": 4000,
-      "label": "ZOOM CAMERA"
-    },
-    {
-      "aliases": ["tiktok", "tik tok"],
-      "action": "change",
-      "durationMs": 2500,
-      "label": "ĐỔI NHÂN VẬT"
-    },
-    {
-      "aliases": ["finger heart", "trái tim ngón tay", "trai tim ngon tay", "tim ngón tay", "tim ngon tay"],
-      "action": "walk",
-      "durationMs": 5000,
-      "label": "ĐI VÒNG"
-    },
-    {
-      "aliases": ["portal", "cổng không gian", "cong khong gian"],
-      "action": "grow",
-      "durationMs": 8000,
-      "label": "NHÂN VẬT KHỔNG LỒ"
-    },
-    {
-      "aliases": ["galaxy", "interstellar", "ngôi sao", "ngoi sao", "tiktok universe", "universe"],
-      "action": "topdj",
-      "durationMs": 12000,
-      "label": "TOP DJ",
-      "fireworkBursts": 6
+      "label": "🔍 ZOOM CAMERA",
+      "short": "ZOOM"
     }
   ],
   "evolutionEffectsEnabled": true,

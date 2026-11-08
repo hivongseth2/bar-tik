@@ -131,6 +131,8 @@ app.get('/', (_req, res) => res.redirect('/control.html'));
 app.use(express.static(publicDir, staticOptions));
 app.use('/assets', express.static(assetsDir, staticOptions));
 app.use('/vendor/three', express.static(path.join(__dirname, 'node_modules', 'three', 'build'), staticOptions));
+// addon của three (bloom / EffectComposer) cho bar.html, nạp qua import map
+app.use('/vendor/three-addons', express.static(path.join(__dirname, 'node_modules', 'three', 'examples', 'jsm'), staticOptions));
 
 app.get('/api/health', (_req, res) => {
     res.json({ status: 'ok', appId: 'ongchu-mmo-live-bridge', version: '1.0.0' });
@@ -269,6 +271,27 @@ function viewerGuideMessage() {
         });
     const zoomRule = giftRules.find(rule => rule.action === 'camera');
     const zoomLearned = zoomRule?.giftId ? observedGifts.get(String(zoomRule.giftId)) : null;
+    const tiers = giftConfig.priceTiers || [];
+    if (tiers.length) {
+        // Hướng dẫn theo giá: lấy ảnh một món quà thật đúng giá đó (đã gặp trong live) làm icon
+        const known = [...observedGifts.values()];
+        return {
+            type: 'viewer_guide',
+            joinCommand: joinRule ? String(joinRule.trigger || '').split(',')[0].trim() : '',
+            zoomGiftName: '',
+            guideItems: [...tiers].sort((a, b) => a.minimum - b.minimum).map(tier => {
+                const sample = known.find(gift => Number(gift.diamondCount) === tier.minimum && gift.giftPictureUrl);
+                return {
+                    giftId: sample?.giftId || '',
+                    giftName: '',
+                    diamondCount: tier.minimum,
+                    giftPictureUrl: sample?.giftPictureUrl || '',
+                    label: tier.short || tier.label || tier.action.toUpperCase(),
+                    action: tier.action
+                };
+            })
+        };
+    }
     return {
         type: 'viewer_guide',
         joinCommand: joinRule ? String(joinRule.trigger || '').split(',')[0].trim() : '',
@@ -413,6 +436,14 @@ function resolveGiftRule(event) {
         (rule.aliases || []).some(alias => normalizeGiftName(alias) === giftName)
     );
     if (named) return named;
+    // Theo giá 1 món (combo Rose x10 vẫn là quà 1 xu): 1 zoom, 5 đổi NV, 10 bay, 30 máy bay, 99 siêu xe, 199 kết hôn
+    const tiers = giftConfig.priceTiers || [];
+    if (tiers.length) {
+        const unit = Number(event.unitDiamondCount) ||
+            Math.round((Number(event.diamondCount) || 0) / Math.max(1, Number(event.repeatCount) || 1));
+        const tier = [...tiers].sort((a, b) => b.minimum - a.minimum).find(rule => unit >= rule.minimum);
+        if (tier) return tier;
+    }
     const value = Number(event.diamondCount) || 0;
     return [...giftConfig.diamondBands]
         .sort((a, b) => b.minimum - a.minimum)
