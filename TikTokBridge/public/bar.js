@@ -8,10 +8,11 @@ const params = new URLSearchParams(location.search);
 const settings = {
     chroma: params.get('chroma') === '1',
     hud: params.get('hud') !== '0',
-    music: params.get('music') !== '0',
+    panel: params.get('panel') === '1',
+    music: params.get('music') !== '0' && params.get('panel') !== '1',
     npc: clamp(Number(params.get('npc') ?? 8) || 0, 0, 40),
     demo: clamp(Number(params.get('demo') ?? 0) || 0, 0, 300),
-    sfx: params.get('sfx') !== '0'
+    sfx: params.get('sfx') !== '0' && params.get('panel') !== '1'
 };
 // Phát sáng (bloom): chỉ chỗ sáng hơn ngưỡng mới tỏa. Đèn neon được đẩy sáng vượt ngưỡng (GLOW),
 // nhân vật / chữ hơi hạ (SPRITE_TINT) để không bị nhòe. Nền xanh (chroma) thì tắt cho dễ tách nền.
@@ -2254,6 +2255,159 @@ function setConnStatus(msg) {
     ui.dot.title = msg.message || '';
 }
 
+// ───────────────────────── Bảng điều khiển trên trang (giống tu-tien-tiktok, phím S) ─────────────────────────
+const panelEl = document.getElementById('panel');
+const PANEL_NAMES = ['Lan Anh', 'Minh Tuấn', 'Bảo Ngọc', 'Hoàng Long', 'Thu Trang', 'Quốc Bảo', 'Ngọc Hân', 'Đức Anh', 'Mai Chi', 'Gia Huy',
+    'Phương Vy', 'Tuấn Kiệt', 'Khánh Linh', 'Hải Đăng', 'Yến Nhi', 'Trọng Nhân', 'Bích Ngân', 'Thành Đạt', 'Như Quỳnh', 'Văn Toàn'];
+const PANEL_GIFTS = { 1: 'Rose', 5: 'Finger Heart', 10: 'Rosa', 30: 'Perfume', 99: 'Hand Hearts', 199: 'Corgi' };
+let ctl = null, ctlRetry = 0, panelStatus = null, toastUntil = 0;
+
+function togglePanel(show = panelEl.hidden) {
+    panelEl.hidden = !show;
+    if (show && !ctl) ctlConnect();
+    if (show) { renderToggles(); renderBeatInfo(); }
+}
+// kết nối riêng quyền "control" (lệnh kết nối TikTok / demo / giả lập chỉ nhận từ quyền này)
+function ctlConnect() {
+    ctl = new WebSocket(`ws://${location.host}`);
+    ctl.addEventListener('open', () => {
+        ctlRetry = 0;
+        ctl.send(JSON.stringify({ type: 'register', role: 'control' }));
+    });
+    ctl.addEventListener('message', e => {
+        let m;
+        try { m = JSON.parse(e.data); } catch { return; }
+        if (m.type === 'status') { panelStatus = m; renderPanelStatus(); }
+        else if (m.type === 'error') panelToast(m.message || 'Lỗi');
+    });
+    ctl.addEventListener('close', () => {
+        panelStatus = null;
+        renderPanelStatus();
+        setTimeout(ctlConnect, Math.min(10000, 1000 * 2 ** ctlRetry++));
+    });
+}
+function cmd(message) {
+    if (ctl && ctl.readyState === WebSocket.OPEN) { ctl.send(JSON.stringify(message)); return true; }
+    panelToast('Chưa nối được bridge (cửa sổ đen start.bat còn mở không?)');
+    return false;
+}
+function sim(action, extra = {}, name = panelName()) {
+    return cmd({ type: 'demo_event', action, manualUsername: name, ...extra });
+}
+function panelName() { return document.getElementById('p-name').value.trim().slice(0, 40) || 'Khách Quen'; }
+function panelText() { return document.getElementById('p-text').value.trim().slice(0, 300) || 'hey'; }
+function panelToast(text) {
+    toastUntil = performance.now() + 3500;
+    const el = document.getElementById('p-status');
+    el.textContent = '⚠️ ' + text;
+    setTimeout(() => { if (performance.now() >= toastUntil) renderPanelStatus(); }, 3600);
+}
+function renderPanelStatus() {
+    if (performance.now() < toastUntil) return;
+    const dot = document.getElementById('p-dot'), el = document.getElementById('p-status');
+    const st = panelStatus;
+    if (!st) { dot.className = 'p-dot'; el.textContent = ctl && ctl.readyState === WebSocket.OPEN ? 'Đã nối bridge' : 'Mất nối bridge, đang thử lại…'; return; }
+    const user = st.username ? '@' + st.username : '';
+    const text = {
+        connected: `🔴 Đang live ${user}`,
+        connecting: `Đang kết nối ${user}…`,
+        reconnecting: `Mất sóng, đang nối lại ${user}…`,
+        demo: st.message || 'Đang chạy demo'
+    }[st.state] || st.message || 'Chưa kết nối live';
+    dot.className = 'p-dot' + (st.state === 'connected' ? ' on' : st.state === 'demo' ? ' demo' : '');
+    el.textContent = text;
+    const input = document.getElementById('p-user');
+    if (!input.value && (st.username || st.autoUsername)) input.value = st.username || st.autoUsername;
+}
+function renderToggles() {
+    const state = {
+        music: settings.music,
+        sfx: settings.sfx,
+        hud: !document.body.classList.contains('no-hud'),
+        chroma: settings.chroma
+    };
+    for (const b of panelEl.querySelectorAll('[data-toggle]')) b.classList.toggle('on', Boolean(state[b.dataset.toggle]));
+}
+function renderBeatInfo() {
+    if (panelEl.hidden) return;
+    const b = beatInfo(clock.elapsed);
+    const src = beatDet.active ? (beatDet.source === 'music' ? 'nghe nhạc trong trang' : 'từ trang nghe nhịp') : 'nhịp cố định (chưa nghe được nhạc)';
+    document.getElementById('p-beat').textContent = `Nhịp: ${Math.round(b.bps * 60)} BPM · ${src}`;
+}
+setInterval(renderBeatInfo, 500);
+
+async function setMusic(on) {
+    settings.music = on;
+    if (!on) { audio.pause(); return; }
+    if (!playlist.length) {
+        try { playlist = ((await (await fetch('/api/media')).json()).music) || []; } catch {}
+    }
+    if (!playlist.length) { settings.music = false; panelToast('Chưa có nhạc: bỏ file MP3 vào thư mục DJ_MUSIC'); return; }
+    if (audio.src) audio.play().then(onAudioUnlocked).catch(() => {});
+    else playTrack();
+}
+function stagger(count, gap, fn) { for (let i = 0; i < count; i++) setTimeout(() => fn(i), i * gap); }
+function realPlayerNames() { return [...players.values()].filter(a => !a.isNpc).map(a => a.userId); }
+
+panelEl.addEventListener('click', async e => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    const act = btn.dataset.act, gift = btn.dataset.gift, toggle = btn.dataset.toggle;
+    if (gift) { sim('gift', { value: Number(gift), giftName: PANEL_GIFTS[gift] || '' }); return; }
+    if (toggle) {
+        if (toggle === 'music') await setMusic(!settings.music);
+        if (toggle === 'sfx') { settings.sfx = !settings.sfx; if (settings.sfx) sfxReady(); }
+        if (toggle === 'hud') document.body.classList.toggle('no-hud');
+        if (toggle === 'chroma') setChroma(!settings.chroma);
+        renderToggles();
+        return;
+    }
+    switch (act) {
+        case 'close': togglePanel(false); break;
+        case 'connect': {
+            const user = document.getElementById('p-user').value.trim().replace(/^@/, '');
+            if (!user) panelToast('Nhập tài khoản TikTok trước đã');
+            else cmd({ type: 'set_username', username: user });
+            break;
+        }
+        case 'disconnect': cmd({ type: 'disconnect_tiktok' }); break;
+        case 'join': sim('chat', { comment: 'hey' }); break;
+        case 'chat': sim('chat', { comment: panelText() }); break;
+        case 'like': sim('like', { value: 15 }); break;
+        case 'follow': sim('follow'); break;
+        case 'share': sim('share'); break;
+        case 'dance': sim('dance'); break;
+        case 'crowd': stagger(10, 250, () => sim('member', {}, pick(PANEL_NAMES) + ' ' + Math.floor(Math.random() * 99))); break;
+        case 'raid': {
+            const names = realPlayerNames();
+            stagger(20, 200, () => sim('like', { value: 5 + Math.floor(Math.random() * 20) }, names.length ? pick(names) : pick(PANEL_NAMES)));
+            break;
+        }
+        case 'chatter': {
+            const text = panelText();
+            stagger(8, 180, i => sim('chat', { comment: text }, pick(PANEL_NAMES) + ' ' + i));
+            break;
+        }
+        case 'demo': cmd({ type: 'demo_start', count: 30 }); break;
+        case 'demo-stop': cmd({ type: 'demo_stop' }); break;
+        case 'reset': if (confirm('Xóa hết người trên sàn và bảng top của phiên này?')) cmd({ type: 'reset_game' }); break;
+        case 'beat-page': window.open(`http://127.0.0.1:${location.port || 3000}/beat.html`, 'beat-listener'); break;
+        case 'obs-link': {
+            const link = `http://localtest.me:${location.port || 3000}/bar.html`;
+            try { await navigator.clipboard.writeText(link); panelToast('Đã chép: ' + link); }
+            catch { prompt('Chép link này dán vào LIVE Studio (Add source → Link):', link); }
+            break;
+        }
+    }
+});
+// gõ Enter trong ô comment = gửi, trong ô tài khoản = kết nối
+panelEl.addEventListener('keydown', e => {
+    if (e.key !== 'Enter') return;
+    if (e.target.id === 'p-text') sim('chat', { comment: panelText() });
+    if (e.target.id === 'p-user') panelEl.querySelector('[data-act="connect"]').click();
+});
+if (settings.panel) togglePanel(true);
+
 // ───────────────────────── WebSocket tới bridge ─────────────────────────
 let ws = null, wsRetry = 0;
 function connect() {
@@ -2339,10 +2493,12 @@ function setChroma(on) {
 window.addEventListener('keydown', e => {
     if (e.key === 'F2') { e.preventDefault(); setChroma(!settings.chroma); }
     if (e.key === 'F1') { e.preventDefault(); document.body.classList.toggle('no-hud'); }
-    // F3 hoặc C: mở Bảng điều khiển (tab mới, mở rồi thì nhảy sang tab đó)
-    if (e.key === 'F3' || ((e.key === 'c' || e.key === 'C') && !e.ctrlKey && !e.metaKey && !e.altKey)) {
+    // S (giống tu-tien), F3 hoặc C: ẩn/hiện bảng điều khiển ngay trên trang
+    const typing = e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA');
+    const plain = !e.ctrlKey && !e.metaKey && !e.altKey;
+    if (e.key === 'F3' || (!typing && plain && ['s', 'S', 'c', 'C'].includes(e.key))) {
         e.preventDefault();
-        window.open('/control.html', 'bar-control');
+        togglePanel();
     }
 });
 

@@ -45,7 +45,7 @@ export function createBeatDetector(options = {}) {
             this.prevE = e;
             const sens = Math.min(2, Math.max(0.5, this.sensitivity));
             const since = t - this.last;
-            if (e > prev * (1 + 0.15 / sens) + 0.025 / sens && e > 0.28 / sens && rise > 0.012 / sens && since > 0.27) {
+            if (e > prev * (1 + 0.15 / sens) + 0.025 / sens && e > 0.28 / sens && rise > 0.03 / sens && since > 0.27) {
                 if (since < 1.5) {
                     let g = since;
                     while (g < 0.333) g *= 2;

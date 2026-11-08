@@ -573,10 +573,14 @@ function emitDemoMember(index, manualName = null) {
     });
 }
 
-function emitDemoAction(action, userIndex = 1, value = 1, giftName = '', manualName = null) {
+function emitDemoAction(action, userIndex = 1, value = 1, giftName = '', manualName = null, comment = '') {
     const user = mockUser(userIndex, manualName);
     const eventId = `demo-${action}-${Date.now()}-${Math.random()}`;
     if (action === 'member') return emitDemoMember(userIndex, manualName);
+    // panel trên bar.html: comment tùy ý (hey, haha, dance...)
+    if (action === 'chat') {
+        return processGameEvent({ type: 'chat', eventId, ...user, comment: comment || 'hey' });
+    }
     if (action === 'dance') {
         return processGameEvent({ type: 'chat', eventId, ...user, comment: 'dance' });
     }
@@ -950,7 +954,8 @@ async function handleClientMessage(ws, message) {
             Math.max(1, Number(message.userIndex) || 1),
             Math.max(1, Number(message.value) || 1),
             String(message.giftName || ''),
-            message.manualUsername || null
+            message.manualUsername ? String(message.manualUsername).slice(0, 40) : null,
+            String(message.comment || '').slice(0, 300)
         );
     }
     if (message.type === 'reset_game') {
@@ -994,7 +999,9 @@ wss.on('connection', (ws, request) => {
     ws.on('message', (rawMessage, isBinary) => {
         if (isBinary) return ws.close(1003, 'Text messages only');
         // trang nghe nhịp gửi ~3-4 tin/giây (mỗi tiếng kick + nhịp tim 1 giây) -> nới giới hạn cho riêng nó
-        if (!consumeRateLimit(ws.rateLimit, Date.now(), ws.role === 'beat' ? 150 : 40)) return ws.close(1008, 'Rate limit exceeded');
+        // bảng điều khiển: nút "đám đông" bắn 10-20 lệnh liền
+        const limit = ws.role === 'beat' ? 150 : ws.role === 'control' ? 120 : 40;
+        if (!consumeRateLimit(ws.rateLimit, Date.now(), limit)) return ws.close(1008, 'Rate limit exceeded');
         let message;
         try {
             message = JSON.parse(rawMessage.toString());

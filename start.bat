@@ -108,11 +108,14 @@ timeout /t 1 /nobreak >nul
 rem ---------- 5. Game: ban web (mac dinh, dan link vao LIVE Studio) hoac ban Unity (GAME_MODE=unity trong .env) ----------
 :game
 set "GAME_MODE="
+set "CONTROL_URL="
 for /f "delims=" %%g in ('call "%NODE%" -e "require('./src/config/environment').loadEnvironmentFile();process.stdout.write(String(process.env.GAME_MODE||'web').toLowerCase())"') do set "GAME_MODE=%%g"
 if not "%GAME_MODE%"=="unity" (
   echo [OK] Game ban web: dan link nay vao TikTok LIVE Studio ^(Add source - Link, 1080 x 1920^):
   echo      http://localtest.me:%PORT_CFG%/bar.html
   echo      ^(Muon chay ban Unity .exe: dat GAME_MODE=unity trong TikTokBridge\.env^)
+  echo [OK] Mo quan bar kem Bang dieu khien ^(phim S an/hien^) tren trinh duyet.
+  set "CONTROL_URL=http://127.0.0.1:%PORT_CFG%/bar.html?panel=1"
   goto :control
 )
 set "GAME_EXE="
@@ -130,7 +133,7 @@ if not defined GAME_EXE (
   start "" "%GAME_EXE%"
 )
 :control
-set "CONTROL_URL=http://127.0.0.1:%PORT_CFG%/control.html"
+if not defined CONTROL_URL set "CONTROL_URL=http://127.0.0.1:%PORT_CFG%/control.html"
 rem doi server len vai giay roi mo Bang dieu khien tren trinh duyet
 start "" /min powershell -NoProfile -Command "Start-Sleep 3; Start-Process '%CONTROL_URL%'"
 

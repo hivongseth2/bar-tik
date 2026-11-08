@@ -40,6 +40,79 @@
 
 <div id="sound-hint" hidden>🔇 Bấm vào màn hình để bật nhạc</div>
 
+<!-- Bảng điều khiển ngay trên trang (giống tu-tien-tiktok): phím S ẩn/hiện, ?panel=1 mở sẵn -->
+<aside id="panel" hidden>
+    <div class="p-head">
+        <b>🎛️ Bảng điều khiển</b>
+        <button class="p-x" data-act="close" title="Ẩn (phím S)">✕</button>
+    </div>
+
+    <section>
+        <h4>📡 Live TikTok</h4>
+        <div class="p-status"><i id="p-dot" class="p-dot"></i><span id="p-status">Đang nối bridge…</span></div>
+        <div class="p-row">
+            <input id="p-user" placeholder="tài khoản TikTok (không có @)" autocomplete="off" spellcheck="false">
+            <button class="ok" data-act="connect">Kết nối</button>
+            <button data-act="disconnect">Ngắt</button>
+        </div>
+    </section>
+
+    <section>
+        <h4>🧪 Giả lập người xem</h4>
+        <div class="p-row">
+            <input id="p-name" placeholder="Tên người xem" value="Khách Quen">
+            <input id="p-text" placeholder="Nội dung comment" value="haha đỉnh quá">
+        </div>
+        <div class="p-grid">
+            <button data-act="join">👋 Vào sàn (hey)</button>
+            <button data-act="chat">💬 Gửi comment</button>
+            <button data-act="like">❤️ +15 tim</button>
+            <button data-act="follow">💖 Follow</button>
+            <button data-act="share">📣 Share</button>
+            <button data-act="dance">🕺 Nhảy</button>
+        </div>
+        <h4>🎁 Tặng quà (theo giá)</h4>
+        <div class="p-grid gifts">
+            <button data-gift="1">🔍 1💎 Zoom</button>
+            <button data-gift="5">🔄 5💎 Đổi NV</button>
+            <button data-gift="10">🌀 10💎 Bay vòng</button>
+            <button data-gift="30">✈️ 30💎 Máy bay</button>
+            <button data-gift="99">🏎️ 99💎 Siêu xe</button>
+            <button data-gift="199">💍 199💎 Kết hôn</button>
+        </div>
+    </section>
+
+    <section>
+        <h4>👥 Đám đông</h4>
+        <div class="p-grid">
+            <button data-act="crowd">+10 người vào</button>
+            <button data-act="raid">Cả phòng thả tim</button>
+            <button data-act="chatter">8 người chat</button>
+            <button data-act="demo">Demo 30 người</button>
+            <button data-act="demo-stop">Dừng demo</button>
+            <button class="danger" data-act="reset">Xóa sàn (reset)</button>
+        </div>
+    </section>
+
+    <section>
+        <h4>🎚️ Hiển thị &amp; âm thanh</h4>
+        <div class="p-grid toggles">
+            <button data-toggle="music">🎵 Nhạc</button>
+            <button data-toggle="sfx">🔊 Âm hiệu ứng</button>
+            <button data-toggle="hud">🔤 Bảng chữ</button>
+            <button data-toggle="chroma">🟩 Nền xanh</button>
+        </div>
+        <div class="p-status"><span id="p-beat">Nhịp: --</span></div>
+        <div class="p-grid">
+            <button data-act="beat-page">🎧 Mở trang nghe nhịp</button>
+            <button data-act="obs-link">📋 Chép link LIVE Studio</button>
+        </div>
+    </section>
+
+    <p class="p-hint">Phím <b>S</b>: ẩn/hiện bảng này. Trong LIVE Studio cứ dán link thường (bảng tự ẩn).
+        Muốn điều khiển thì mở thêm một tab Chrome có <b>?panel=1</b> (tab đó tự tắt nhạc cho khỏi kêu 2 lần).</p>
+</aside>
+
 <script type="importmap">{ "imports": { "three": "/vendor/three/three.module.js", "three/addons/": "/vendor/three-addons/" } }</script>
 <script type="module" src="/bar.js"></script>
 </body>
