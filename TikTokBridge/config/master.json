@@ -1,12 +1,12 @@
 {
-  "joinMode": "keyword_only",
+  "joinMode": "all_interactions",
   "giftAlwaysJoins": true,
   "rules": [
     {
       "id": "chat-hey-join",
       "enabled": true,
       "source": "chat",
-      "trigger": "hey",
+      "trigger": "hey, hey!, heyy, heyyy, hi, hello, helo, alo, vao, vao san",
       "giftId": "",
       "match": "exact",
       "action": "join",

@@ -57,7 +57,8 @@ function isAllowedHost(value, port, allowLan = false) {
     const host = String(value || '').trim().toLowerCase();
     if (!host || host.length > 255 || /[\s\\/]/.test(host)) return false;
     if (allowLan) return true;
-    return new Set([`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`]).has(host);
+    // localtest.me luôn trỏ về 127.0.0.1: dùng để dán link vào TikTok LIVE Studio (giống tu-tien-tiktok)
+    return new Set([`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`, `localtest.me:${port}`]).has(host);
 }
 
 function isAllowedOrigin(value, port) {
@@ -66,7 +67,7 @@ function isAllowedOrigin(value, port) {
         const origin = new URL(String(value));
         const hostname = origin.hostname.toLowerCase();
         return origin.protocol === 'http:' &&
-            (hostname === '127.0.0.1' || hostname === 'localhost' || hostname === '[::1]' || hostname === '::1') &&
+            (hostname === '127.0.0.1' || hostname === 'localhost' || hostname === 'localtest.me' || hostname === '[::1]' || hostname === '::1') &&
             origin.port === String(port);
     } catch {
         return false;

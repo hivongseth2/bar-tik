@@ -7,7 +7,7 @@ const test = require('node:test');
 
 test('Windows launch scripts use CRLF line endings', () => {
     const repositoryRoot = path.join(__dirname, '..', '..');
-    for (const fileName of ['run.bat', 'build.bat']) {
+    for (const fileName of ['start.bat', 'run.bat', 'build.bat', 'dong-goi.bat']) {
         const content = fs.readFileSync(path.join(repositoryRoot, fileName), 'utf8');
         assert.match(content, /\r\n/, `${fileName} must contain CRLF line endings`);
         assert.doesNotMatch(content, /(^|[^\r])\n/, `${fileName} contains bare LF line endings`);
@@ -16,8 +16,9 @@ test('Windows launch scripts use CRLF line endings', () => {
 
 test('launcher checks npm exit status at execution time', () => {
     const repositoryRoot = path.join(__dirname, '..', '..');
-    const launcher = fs.readFileSync(path.join(repositoryRoot, 'run.bat'), 'utf8');
+    // run.bat chi goi sang start.bat (launcher chinh, giong tu-tien-tiktok)
+    const launcher = fs.readFileSync(path.join(repositoryRoot, 'start.bat'), 'utf8');
 
     assert.doesNotMatch(launcher, /NPM_RESULT=%ERRORLEVEL%/);
-    assert.match(launcher, /call npm ci[\s\S]*?if errorlevel 1/);
+    assert.match(launcher, /call "%NPM%" ci[\s\S]*?if errorlevel 1/);
 });

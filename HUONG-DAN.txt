@@ -1,0 +1,40 @@
+TIKTOK LIVE BAR - HUONG DAN CHAY TREN MAY MOI
+=============================================
+
+1. Giai nen file TikTokLiveBar-....zip vao mot thu muc bat ky (vi du C:\TikTokLiveBar).
+   Khong can cai Node.js neu goi tao bang dong-goi.bat: da kem san trong thu muc "runtime".
+
+2. Bam dup start.bat. Cua so den hien "TikTok Live Game: http://127.0.0.1:3000" la duoc.
+   start.bat tu kiem tra truoc khi chay: Node.js (thieu thi goi y cai bang winget), thu vien (thieu thi tu npm ci),
+   file cau hinh dung dinh dang chua, cong 3000 co dang bi chiem khong (hoi tat), da dien tai khoan TikTok chua.
+   Dong nao bao [LOI] thi lam theo huong dan ngay ben duoi dong do.
+   Sau do start.bat mo Bang dieu khien tren trinh duyet.
+   Server chay ngay trong cua so den nay: DONG cua so = tat bridge.
+
+3. Kiem tra: mo http://localtest.me:3000/bar.html (quan bar ban web), roi tren Bang dieu khien
+   (http://127.0.0.1:3000/control.html) bam DEMO 30 hoac DEMO 200 -> nguoi ao vao san.
+   Xem thu khong can bridge: http://localtest.me:3000/bar.html?demo=30
+   Xong thi DONG tab nay lai (de khong bi phat nhac 2 lan khi live).
+
+4. Ket noi live: mo TikTokBridge\.env
+   - TIKTOK_USERNAME=ten_tai_khoan   (khong co dau @) -> lan sau bam start.bat la tu ket noi.
+     Hoac chay tam: start.bat ten_tai_khoan
+   - LIVE_PROVIDER=tiktok     : noi thang TikTok (mac dinh).
+     LIVE_PROVIDER=tikfinity  : di qua TikFinity Desktop (phai mo TikFinity truoc).
+   Luu lai roi tat cua so den va bam start.bat lai.
+
+5. Dua vao TikTok LIVE Studio (giong tu-tien):
+   Add source -> Link -> dan:  http://localtest.me:3000/bar.html
+   Bat Custom resolution 1080 x 1920, bat Turn on sound -> Add -> chon Fill screen.
+   Tuy chon them vao cuoi link: ?chroma=1 (nen xanh), ?hud=0 (an bang), ?music=0 (tat nhac), ?npc=8 (so nguoi ao)
+   Phim: F1 an/hien bang, F2 nen xanh.
+   Nhac nen: tha MP3 vao DJ_MUSIC (hoac Build\DJ_MUSIC). Man LED: tha video MP4 / anh PNG vao DJ_VIDEO.
+   Ban Unity cu: dat GAME_MODE=unity trong TikTokBridge\.env, start.bat se mo Build\TIKTOK_LIVE_BAR.exe,
+   dua vao LIVE Studio bang Game Capture.
+
+6. Chuyen sang may khac: bam dong-goi.bat -> file zip trong thu muc "dong-goi" canh thu muc game.
+
+Luu y
+- run.bat cu van dung duoc (goi sang start.bat).
+- Ban Unity dung san chi ket noi cong 3000: giu PORT=3000 trong TikTokBridge\.env (ban web thi cong nao cung duoc).
+- TikTokBridge\.env co EULER_API_KEY (neu ban dien): dung gui file zip cho nguoi la.

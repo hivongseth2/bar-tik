@@ -65,6 +65,18 @@ function send(message) {
     }
 }
 
+// Đổi chữ trên bảng theo nguồn live server đang dùng (LIVE_PROVIDER trong .env) + điền sẵn tài khoản tự kết nối
+function applyProvider(data) {
+    if (data.provider) {
+        const tiktok = data.provider === 'tiktok';
+        document.querySelectorAll('[data-provider-label]').forEach(el => {
+            el.textContent = tiktok ? el.dataset.tiktok : el.dataset.tikfinity;
+        });
+    }
+    const name = data.autoUsername || data.username;
+    if (name && !ui.username.value && document.activeElement !== ui.username) ui.username.value = name;
+}
+
 function setStatus(data) {
     const state = data.state || '';
     ui.statusDot.className = 'status-dot ' + state;
@@ -84,6 +96,7 @@ function setStatus(data) {
     if (ui.statusTitleCard) ui.statusTitleCard.textContent = label;
     if (ui.statusMessage)   ui.statusMessage.textContent = data.message || '';
     ui.connect.disabled = state === 'connecting';
+    applyProvider(data);
 
     // Badge đỏ nhấp nháy khi đang LIVE thật
     const liveBadge = document.getElementById('live-badge');

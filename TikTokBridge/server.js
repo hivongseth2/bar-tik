@@ -52,8 +52,10 @@ const assetsDir = path.join(__dirname, 'assets');
 const gifsDir = path.join(assetsDir, 'gifs');
 const masterConfigPath = path.join(__dirname, 'config', 'master.json');
 const observedGiftsPath = path.join(__dirname, 'config', 'observed-gifts.json');
-const LIVE_PROVIDER = String(process.env.LIVE_PROVIDER || gameConfig.liveProvider || 'tikfinity').toLowerCase();
+const LIVE_PROVIDER = String(process.env.LIVE_PROVIDER || gameConfig.liveProvider || 'tiktok').toLowerCase();
 const TIKFINITY_WS_URL = String(process.env.TIKFINITY_WS_URL || gameConfig.tikfinityWsUrl || 'ws://127.0.0.1:21213/');
+// Tài khoản TikTok tự kết nối khi mở (giống tu-tien-tiktok): "start.bat <ten>" hoặc TIKTOK_USERNAME trong .env
+const AUTO_USERNAME = String(process.argv[2] || process.env.TIKTOK_USERNAME || '').trim().replace(/^@/, '');
 
 let liveConnection = null;
 let connectionAttempt = 0;
@@ -65,7 +67,9 @@ const demoTimeouts = new Set();
 let connectionStatus = {
     state: 'idle',
     username: null,
-    message: 'Chưa kết nối'
+    message: 'Chưa kết nối',
+    provider: LIVE_PROVIDER,
+    autoUsername: AUTO_USERNAME
 };
 let metrics = createMetrics();
 let masterConfig = sanitizeMasterConfig(initialMasterConfig);
@@ -114,7 +118,7 @@ app.use((req, res, next) => {
         "style-src 'self' 'unsafe-inline'",
         "img-src 'self' data: blob: https:",
         "media-src 'self' blob:",
-        `connect-src 'self' ws://127.0.0.1:${PORT} ws://localhost:${PORT}`
+        `connect-src 'self' ws://127.0.0.1:${PORT} ws://localhost:${PORT} ws://localtest.me:${PORT}`
     ].join('; '));
     if (req.path.startsWith('/api/') || req.path.endsWith('.html')) {
         res.setHeader('Cache-Control', 'no-store');
@@ -147,6 +151,64 @@ app.get('/api/gifs', async (_req, res) => {
     }
 });
 
+// ── Bản web của quán bar (public/bar.html): nhạc / video người dùng thả vào DJ_MUSIC, DJ_VIDEO ──
+const projectRoot = path.join(__dirname, '..');
+const mediaDirs = {
+    music: [path.join(projectRoot, 'DJ_MUSIC'), path.join(projectRoot, 'Build', 'DJ_MUSIC')],
+    video: [path.join(projectRoot, 'DJ_VIDEO'), path.join(projectRoot, 'Build', 'DJ_VIDEO')]
+};
+const mediaExtensions = {
+    music: new Set(['.mp3', '.wav', '.ogg', '.m4a']),
+    video: new Set(['.mp4', '.webm', '.m4v', '.mov', '.png', '.jpg', '.jpeg', '.gif'])
+};
+mediaDirs.music.forEach(dir => app.use('/media/music', express.static(dir, staticOptions)));
+mediaDirs.video.forEach(dir => app.use('/media/video', express.static(dir, staticOptions)));
+app.get('/api/media', async (_req, res) => {
+    const result = {};
+    for (const [kind, dirs] of Object.entries(mediaDirs)) {
+        const names = new Set();
+        for (const dir of dirs) {
+            try {
+                for (const file of await fs.readdir(dir)) {
+                    if (mediaExtensions[kind].has(path.extname(file).toLowerCase())) names.add(file);
+                }
+            } catch {}
+        }
+        result[kind] = [...names].sort((a, b) => a.localeCompare(b)).map(file => `/media/${kind}/${encodeURIComponent(file)}`);
+    }
+    res.json(result);
+});
+
+// Avatar TikTok không gửi header CORS -> WebGL không vẽ được. Lấy hộ qua server (chỉ CDN của TikTok), giữ cache trong RAM.
+const avatarHostSuffixes = ['tiktokcdn.com', 'tiktokcdn-us.com', 'tiktokcdn-eu.com', 'ibyteimg.com', 'byteimg.com', 'muscdn.com', 'tiktokv.com'];
+const avatarCache = new Map();
+app.get('/api/avatar', async (req, res) => {
+    let target;
+    try { target = new URL(String(req.query.u || '')); } catch { return res.status(400).end(); }
+    const host = target.hostname.toLowerCase();
+    if (target.protocol !== 'https:' || !avatarHostSuffixes.some(suffix => host === suffix || host.endsWith(`.${suffix}`))) {
+        return res.status(403).end();
+    }
+    const key = target.href;
+    let cached = avatarCache.get(key);
+    if (!cached) {
+        try {
+            const response = await fetch(key, { signal: AbortSignal.timeout(6000), redirect: 'error' });
+            const type = String(response.headers.get('content-type') || '');
+            if (!response.ok || !type.startsWith('image/')) return res.status(502).end();
+            const body = Buffer.from(await response.arrayBuffer());
+            if (body.length > 2 * 1024 * 1024) return res.status(502).end();
+            cached = { type, body };
+            avatarCache.set(key, cached);
+            if (avatarCache.size > 600) avatarCache.delete(avatarCache.keys().next().value);
+        } catch {
+            return res.status(502).end();
+        }
+    }
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.type(cached.type).send(cached.body);
+});
+
 app.use((_req, res) => res.status(404).type('text/plain').send('Not found'));
 
 function broadcast(data) {
@@ -168,7 +230,7 @@ function send(ws, data) {
 }
 
 function setStatus(state, username, message) {
-    connectionStatus = { state, username, message };
+    connectionStatus = { state, username, message, provider: LIVE_PROVIDER, autoUsername: AUTO_USERNAME };
     broadcast({ type: 'status', ...connectionStatus });
 }
 
@@ -909,17 +971,33 @@ server.headersTimeout = 5000;
 server.keepAliveTimeout = 5000;
 server.maxHeadersCount = 64;
 
+// Windows: tắt QuickEdit của cửa sổ đen (giống tu-tien-tiktok). Bấm chuột vào cửa sổ làm console.log bị chặn
+// -> cả server đứng, TikTok mất ping và ngắt kết nối. Chạy từ trong node để cmd không khôi phục chế độ cũ.
+if (process.platform === 'win32' && process.stdout.isTTY) {
+    try {
+        require('child_process').spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', path.join(__dirname, '..', 'tools', 'tat-quickedit.ps1')], { stdio: 'ignore', timeout: 15000 });
+    } catch {}
+}
+
 server.listen(PORT, HOST, () => {
-    console.log(`TikTok Live Game: http://${HOST}:${PORT}`);
-    console.log(`Bảng điều khiển: http://${HOST}:${PORT}/control.html`);
+    console.log(`\nTikTok Live Game: http://${HOST}:${PORT}`);
+    console.log(`Bảng điều khiển:  http://${HOST}:${PORT}/control.html`);
+    console.log(`Quán bar (web):   http://localtest.me:${PORT}/bar.html   <- dán vào TikTok LIVE Studio (Link, 1080x1920)`);
+    console.log(`Nguồn live:       ${LIVE_PROVIDER === 'tikfinity' ? `TikFinity (${TIKFINITY_WS_URL})` : 'TikTok trực tiếp'}\n`);
+    if (AUTO_USERNAME) {
+        console.log(`Tự kết nối @${AUTO_USERNAME}...`);
+        void connectToLiveProvider(AUTO_USERNAME);
+    } else {
+        console.log('Chưa đặt TIKTOK_USERNAME trong TikTokBridge\\.env: nhập tài khoản ở Bảng điều khiển rồi bấm KẾT NỐI.');
+    }
 });
 
 server.on('error', (err) => {
     if (err.code === 'EADDRINUSE') {
         console.error(`\n❌ Lỗi: Cổng ${PORT} đang bị chương trình khác chiếm.`);
-        console.error(`   Có thể bạn đã chạy server trước đó mà chưa tắt.\n`);
+        console.error(`   Có thể game đang mở ở một cửa sổ đen khác.\n`);
         console.error(`   Cách khắc phục:`);
-        console.error(`   1. Tắt cửa sổ cmd/terminal cũ đang chạy server`);
+        console.error(`   1. Đóng cửa sổ đen cũ rồi bấm start.bat lại`);
         console.error(`   2. Hoặc chạy lệnh: npx kill-port ${PORT}`);
         console.error(`   3. Nếu chỉ dùng Control Panel, có thể đổi PORT trong file .env.`);
         console.error(`      Bản game dựng sẵn cần PORT=3000.\n`);

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sàn Quẩy Online</title>
+<link rel="icon" href="/favicon.svg">
+<link rel="stylesheet" href="/bar.css">
+</head>
+<body>
+<canvas id="scene"></canvas>
+
+<div id="hud">
+    <header id="hud-top">
+        <div class="brand"><span class="disco">🪩</span> SÀN QUẨY <b>ONLINE</b><i id="conn-dot" class="dot"></i></div>
+        <div class="stats">
+            <span title="Người trên sàn">👥 <b id="stat-players">0</b></span>
+            <span title="Kim cương">💎 <b id="stat-diamonds">0</b></span>
+            <span title="Lượt tim">❤️ <b id="stat-likes">0</b></span>
+        </div>
+    </header>
+    <div id="energy"><div id="energy-fill"></div><span id="energy-text">NĂNG LƯỢNG QUẨY 0%</span></div>
+    <ol id="top3"></ol>
+    <div id="conn-warning" hidden>Mất kết nối bridge, đang thử lại…</div>
+    <ul id="feed"></ul>
+    <footer id="guide"></footer>
+</div>
+
+<div id="banner" hidden>
+    <div class="banner-glow"></div>
+    <img id="banner-avatar" alt="">
+    <div class="banner-body">
+        <div id="banner-label"></div>
+        <div id="banner-name"></div>
+        <div id="banner-gift"><img id="banner-gift-img" alt=""><span id="banner-gift-text"></span></div>
+    </div>
+</div>
+
+<div id="door"><img alt=""><div><div><b class="who"></b> vừa vào phòng 👋</div><div class="sub">Chat "<b class="cmd">hey</b>" để lên sàn quẩy</div></div></div>
+
+<div id="sound-hint" hidden>🔇 Bấm vào màn hình để bật nhạc</div>
+
+<script type="module" src="/bar.js"></script>
+</body>
+</html>

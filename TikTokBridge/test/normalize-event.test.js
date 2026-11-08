@@ -66,6 +66,40 @@ test('normalizes gift value and detects unfinished streaks', () => {
     assert.equal(isPendingGiftStreak(finished), false);
 });
 
+test('normalizes tiktok-live-connector 2.x (proto v3) chat, like and gift shapes', () => {
+    const { normalizeLike } = require('../src/tiktok/normalize-event');
+    const user = {
+        id: '7001',
+        displayId: 'nguoi_xem',
+        nickname: 'Người Xem',
+        avatarThumb: { urlList: ['https://p16.tiktokcdn.com/a.webp'] }
+    };
+    const chat = normalizeChat({ common: { msgId: 'm1' }, user, content: 'Hey' });
+    assert.equal(chat.comment, 'Hey');
+    assert.equal(chat.userId, '7001');
+    assert.equal(chat.uniqueId, 'nguoi_xem');
+    assert.equal(chat.avatar, 'https://p16.tiktokcdn.com/a.webp');
+    assert.equal(chat.eventId, 'm1');
+
+    const like = normalizeLike({ user, count: 15, total: '300' });
+    assert.equal(like.likeCount, 15);
+    assert.equal(like.totalLikeCount, 300);
+
+    const combo = normalizeGift({
+        user,
+        giftId: '5655',
+        repeatCount: 4,
+        repeatEnd: 0,
+        gift: { id: '5655', name: 'Rose', type: 1, diamondCount: 1, image: { urlList: ['https://p16.tiktokcdn.com/rose.png'] } }
+    });
+    assert.equal(combo.giftName, 'Rose');
+    assert.equal(combo.diamondCount, 4);
+    assert.equal(combo.unitDiamondCount, 1);
+    assert.equal(combo.giftPictureUrl, 'https://p16.tiktokcdn.com/rose.png');
+    assert.equal(isPendingGiftStreak(combo), true);
+    assert.equal(isPendingGiftStreak(normalizeGift({ user, giftId: '5655', repeatCount: 4, repeatEnd: 1, gift: { type: 1, diamondCount: 1, name: 'Rose' } })), false);
+});
+
 test('normalizes TikFinity chat and gift envelopes', () => {
     const [chat] = normalizeTikFinityMessage(JSON.stringify({
         event: 'chat',
